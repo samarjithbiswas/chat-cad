@@ -1,0 +1,816 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Chat CAD</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; font-family: ui-sans-serif, system-ui, sans-serif;
+               background: #14171c; color: #e6e8eb; }
+  #root { display: grid; grid-template-columns: 380px 1fr; height: 100vh; }
+  #side { display: flex; flex-direction: column; border-right: 1px solid #2a2f37;
+          background: #181c22; }
+  #title { padding: 14px 16px; font-weight: 700; letter-spacing: 0.5px;
+           border-bottom: 1px solid #2a2f37; display: flex; justify-content: space-between;
+           align-items: center; }
+  #title small { font-weight: 400; opacity: 0.6; }
+  #settings { padding: 10px 14px; border-bottom: 1px solid #2a2f37;
+              display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
+  #settings input, #settings select { background: #0f1318; color: #e6e8eb;
+              border: 1px solid #2a2f37; border-radius: 4px; padding: 6px 8px;
+              font-family: inherit; font-size: 12px; }
+  #log { flex: 1; overflow-y: auto; padding: 12px 14px; font-size: 13px;
+         line-height: 1.45; }
+  .msg { margin: 6px 0 14px; white-space: pre-wrap; word-wrap: break-word; }
+  .msg .who { font-size: 10px; opacity: 0.55; letter-spacing: 1px; text-transform: uppercase;
+              margin-bottom: 2px; }
+  .msg.user { color: #cfe2ff; }
+  .msg.bot  { color: #e6e8eb; }
+  .msg.ops  { color: #8fb98f; font-family: ui-monospace, monospace; font-size: 11px;
+              background: #11140f; border-left: 2px solid #3b5e3b; padding: 6px 8px;
+              border-radius: 0 4px 4px 0; }
+  #input { display: flex; border-top: 1px solid #2a2f37; }
+  #input textarea { flex: 1; background: #0f1318; color: #e6e8eb; border: 0;
+                    padding: 10px 12px; font-family: inherit; font-size: 13px;
+                    resize: none; outline: none; min-height: 56px; }
+  #input button { background: #2c5fb3; color: white; border: 0; padding: 0 18px;
+                  font-weight: 600; cursor: pointer; }
+  #input button:hover { background: #3470c8; }
+
+  #main { display: flex; flex-direction: column; min-width: 0; }
+  #tabs { display: flex; border-bottom: 1px solid #2a2f37; background: #1c2128; }
+  .tab { padding: 8px 18px; cursor: pointer; font-size: 12px; color: #cfd3dc;
+         border-right: 1px solid #2a2f37; user-select: none; }
+  .tab.active { background: #14171c; color: #fff; font-weight: 600; }
+  .tab:hover:not(.active) { background: #232932; }
+
+  .pane {
+    flex: 1; display: none; position: relative; min-height: 0;
+  }
+  .pane.active { display: flex; flex-direction: column; }
+
+  #toolbar { padding: 8px 12px; border-bottom: 1px solid #2a2f37; display: flex;
+             gap: 8px; background: #1c2128; align-items: center; }
+  #toolbar button, .sktoolbar button { background: #232932; color: #e6e8eb;
+                    border: 1px solid #2a2f37; border-radius: 4px;
+                    padding: 5px 10px; font-size: 12px; cursor: pointer; }
+  #toolbar button:hover, .sktoolbar button:hover { background: #2d343f; }
+  #canvas { display: block; flex: 1; width: 100%; }
+  #status { position: absolute; bottom: 8px; left: 12px; font-size: 11px;
+            opacity: 0.55; pointer-events: none; }
+
+  .sktoolbar { padding: 8px 12px; border-bottom: 1px solid #2a2f37;
+               background: #1c2128; display: flex; gap: 8px; align-items: center; }
+  .sktoolbar select { background: #0f1318; color: #e6e8eb;
+                      border: 1px solid #2a2f37; border-radius: 4px;
+                      padding: 4px 8px; font-size: 12px; }
+  .skbody { flex: 1; display: grid; grid-template-columns: 1fr 300px;
+            min-height: 0; }
+  .skview { padding: 16px; display: flex; align-items: center;
+            justify-content: center; background: #10141a; overflow: auto; }
+  .skview svg { max-width: 100%; max-height: 100%; }
+  .skinfo { padding: 12px 14px; border-left: 1px solid #2a2f37;
+            background: #181c22; overflow: auto; font-family: ui-monospace, monospace;
+            font-size: 11px; white-space: pre-wrap; }
+  .infopane { flex: 1; padding: 16px 18px; overflow: auto;
+              font-family: ui-monospace, monospace; font-size: 12px;
+              white-space: pre-wrap; line-height: 1.5; }
+
+  #toolbar input[type="range"] { accent-color: #2c5fb3; }
+  #toolbar input[type="number"], #toolbar select,
+  .sktoolbar input[type="number"], .sktoolbar select {
+    background: #0f1318; color: #e6e8eb; border: 1px solid #2a2f37;
+    border-radius: 4px; padding: 4px 6px; font-size: 12px;
+    font-family: inherit;
+  }
+  #toolbar label, .sktoolbar label { font-size: 12px; opacity: 0.75;
+    display: flex; align-items: center; gap: 4px; }
+  #toolbar button.active { background: #2c5fb3; border-color: #2c5fb3; color: #fff; }
+
+  .mode { background: #232932; color: #cfd3dc; border: 1px solid #2a2f37;
+          border-radius: 4px; padding: 3px 9px; font-size: 11px; cursor: pointer;
+          font-family: inherit; }
+  .mode:hover { background: #2d343f; }
+  .mode.active { background: #2c5fb3; color: #fff; border-color: #2c5fb3; }
+  .msg.plan { color: #d6c08f; font-family: ui-monospace, monospace; font-size: 11px;
+              background: #1a1610; border-left: 2px solid #6b5a30; padding: 6px 8px;
+              border-radius: 0 4px 4px 0; }
+  .msg.critic { color: #ff9a8a; }
+  .msg.critic.done   { color: #8fb98f; }
+  .msg.system { color: #8fa3c0; font-size: 11px; font-style: italic; }
+
+  .bomtable { width: 100%; border-collapse: collapse; font-size: 12px;
+              font-family: ui-monospace, monospace; }
+  .bomtable th, .bomtable td { padding: 6px 10px; text-align: left;
+              border-bottom: 1px solid #2a2f37; }
+  .bomtable th { background: #1c2128; color: #cfd3dc; font-weight: 600;
+              position: sticky; top: 0; }
+  .bomtable td.num { text-align: right; }
+  .swatch { display: inline-block; width: 16px; height: 16px;
+            border-radius: 3px; border: 1px solid #2a2f37; vertical-align: middle; }
+</style>
+</head>
+<body>
+<div id="root">
+  <div id="side">
+    <div id="title">Chat CAD <small id="kstat">parser mode</small></div>
+    <div id="settings">
+      <label>Anthropic API key (optional)
+        <input id="apikey" type="password" placeholder="sk-ant-..." />
+      </label>
+      <label>Model
+        <select id="model">
+          <option value="claude-opus-4-7">claude-opus-4-7</option>
+          <option value="claude-sonnet-4-6">claude-sonnet-4-6</option>
+          <option value="claude-haiku-4-5-20251001">claude-haiku-4-5</option>
+        </select>
+      </label>
+      <div style="font-size:10px;opacity:0.5;line-height:1.4;margin-top:2px">
+        Your key is sent only with each chat request and is not logged or
+        stored server-side. It lives in this browser's localStorage so you
+        don't have to retype it.
+      </div>
+    </div>
+    <div id="modeRow" style="padding:6px 14px;border-bottom:1px solid #2a2f37;
+         display:flex;gap:6px;align-items:center;font-size:11px;background:#161a20">
+      <span style="opacity:0.6">Mode:</span>
+      <button id="modeChat"   class="mode active">Chat</button>
+      <button id="modeAgent"  class="mode">Design Agent</button>
+      <span style="flex:1"></span>
+      <span id="modeHint" style="opacity:0.55;font-size:10px">single-turn commands</span>
+    </div>
+    <div id="log"></div>
+    <div id="input">
+      <textarea id="msg" placeholder="describe a part, or type 'help'"></textarea>
+      <button id="send">Send</button>
+    </div>
+  </div>
+
+  <div id="main">
+    <div id="tabs">
+      <div class="tab active" data-tab="3d">3D Scene</div>
+      <div class="tab" data-tab="sk">Sketches</div>
+      <div class="tab" data-tab="asm">Assemblies</div>
+      <div class="tab" data-tab="parts">Parts</div>
+      <div class="tab" data-tab="bom">BOM</div>
+    </div>
+
+    <div id="pane3d" class="pane active">
+      <div id="toolbar">
+        <button id="reset">New project</button>
+        <button id="fitBtn">Fit view</button>
+        <button id="exportStl">Export STL</button>
+        <button id="exportStep">Export STEP</button>
+        <span style="width:1px;height:18px;background:#2a2f37;margin:0 4px"></span>
+        <label><input type="checkbox" id="secEnable" /> Section</label>
+        <select id="secAxis">
+          <option value="X">X</option>
+          <option value="Y">Y</option>
+          <option value="Z" selected>Z</option>
+        </select>
+        <input type="range" id="secSlider" min="-200" max="200" step="0.5" value="0" style="width:140px" />
+        <span id="secVal" style="font-size:11px;opacity:0.7;min-width:60px">0.00 mm</span>
+        <span style="width:1px;height:18px;background:#2a2f37;margin:0 4px"></span>
+        <button id="measureBtn">Measure</button>
+        <button id="measureClear">Clear</button>
+        <span style="flex:1"></span>
+        <span style="font-size:11px;opacity:0.55">drag = rotate · right-drag = pan · wheel = zoom</span>
+      </div>
+      <canvas id="canvas"></canvas>
+      <div id="status">scene empty</div>
+    </div>
+
+    <div id="panesk" class="pane">
+      <div class="sktoolbar">
+        <span style="font-size:12px;opacity:0.7">Sketch:</span>
+        <select id="skselect"><option value="">(none)</option></select>
+        <button id="skrefresh">Refresh</button>
+        <span style="flex:1"></span>
+        <span style="font-size:11px;opacity:0.55">red dot = fixed, yellow = free</span>
+      </div>
+      <div class="skbody">
+        <div class="skview" id="skview">Pick a sketch to view.</div>
+        <div class="skinfo" id="skinfo">(no sketch selected)</div>
+      </div>
+    </div>
+
+    <div id="paneasm" class="pane">
+      <div class="sktoolbar">
+        <span style="font-size:12px;opacity:0.7">Assembly:</span>
+        <select id="asmselect"><option value="">(none)</option></select>
+        <button id="asmrefresh">Refresh</button>
+      </div>
+      <div class="infopane" id="asminfo">(no assembly selected)</div>
+    </div>
+
+    <div id="paneparts" class="pane">
+      <div class="sktoolbar">
+        <button id="partsrefresh">Refresh</button>
+      </div>
+      <div class="infopane" id="partsinfo">(loading)</div>
+    </div>
+
+    <div id="panebom" class="pane">
+      <div class="sktoolbar">
+        <label>Density (g/cm^3)
+          <input type="number" id="bomDensity" value="1.0" step="0.1" min="0" style="width:80px" />
+        </label>
+        <button id="bomrefresh">Refresh</button>
+        <span style="flex:1"></span>
+        <span id="bomstatus" style="font-size:11px;opacity:0.55"></span>
+      </div>
+      <div class="infopane" id="bominfo" style="padding:0">
+        <table class="bomtable" id="bomtable">
+          <thead><tr>
+            <th></th><th>part</th><th>bbox (LxWxH mm)</th>
+            <th class="num">volume (mm^3)</th><th class="num">mass (g)</th>
+          </tr></thead>
+          <tbody><tr><td colspan="5" style="padding:14px;opacity:0.6">(no parts)</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+}}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { STLLoader } from 'three/addons/loaders/STLLoader.js';
+
+// ----- persisted settings -----
+const apikeyEl = document.getElementById('apikey');
+const modelEl  = document.getElementById('model');
+const kstat    = document.getElementById('kstat');
+apikeyEl.value = localStorage.getItem('cc_apikey') || '';
+modelEl.value  = localStorage.getItem('cc_model')  || modelEl.value;
+const refreshKstat = () => { kstat.textContent = apikeyEl.value ? 'claude mode' : 'parser mode'; };
+refreshKstat();
+apikeyEl.addEventListener('change', () => { localStorage.setItem('cc_apikey', apikeyEl.value); refreshKstat(); });
+modelEl .addEventListener('change', () => { localStorage.setItem('cc_model',  modelEl.value); });
+
+// ----- tabs -----
+const tabs = document.querySelectorAll('.tab');
+const panes = { '3d': document.getElementById('pane3d'),
+                'sk': document.getElementById('panesk'),
+                'asm': document.getElementById('paneasm'),
+                'parts': document.getElementById('paneparts'),
+                'bom': document.getElementById('panebom') };
+tabs.forEach(t => t.addEventListener('click', () => {
+  tabs.forEach(x => x.classList.remove('active'));
+  Object.values(panes).forEach(p => p.classList.remove('active'));
+  t.classList.add('active');
+  const id = t.dataset.tab;
+  panes[id].classList.add('active');
+  if (id === '3d') resize();
+  if (id === 'sk') refreshSketches();
+  if (id === 'asm') refreshAssemblies();
+  if (id === 'parts') refreshParts();
+  if (id === 'bom') refreshBOM();
+}));
+
+// ----- three.js scene -----
+const canvas = document.getElementById('canvas');
+const view   = document.getElementById('pane3d');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.localClippingEnabled = true;
+
+// ----- section clip plane state -----
+const clipPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+let clipEnabled = false;
+function currentClippingArray() { return clipEnabled ? [clipPlane] : []; }
+function applyClippingToAll() {
+  const arr = currentClippingArray();
+  for (const entry of partRegistry.values()) {
+    entry.mesh.material.clippingPlanes = arr;
+    entry.mesh.material.clipShadows = true;
+    entry.mesh.material.needsUpdate = false;
+  }
+}
+function updateClipPlane() {
+  const axis = document.getElementById('secAxis').value;
+  const slider = document.getElementById('secSlider');
+  const v = parseFloat(slider.value);
+  document.getElementById('secVal').textContent = v.toFixed(2) + ' mm';
+  const n = { X: new THREE.Vector3(1, 0, 0),
+              Y: new THREE.Vector3(0, 1, 0),
+              Z: new THREE.Vector3(0, 0, 1) }[axis];
+  clipPlane.normal.copy(n);
+  // plane equation n.x + constant = 0 -> points where n.x + constant > 0 are kept
+  // we want slider value v to act as the position along the axis: cut at axis = v
+  // so points with axis > v are clipped away -> normal pointing -axis works,
+  // but more intuitive: keep axis < v side. Use negative-axis normal, constant = v.
+  clipPlane.normal.multiplyScalar(-1);
+  clipPlane.constant = v;
+}
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x171b22);
+scene.fog = new THREE.Fog(0x171b22, 600, 1200);
+
+const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 5000);
+camera.up.set(0, 0, 1);  // Z-up world (CadQuery convention)
+camera.position.set(120, -120, 90);
+const controls = new OrbitControls(camera, canvas);
+controls.enableDamping = true;
+controls.target.set(0, 0, 0);
+
+// Lighting: studio 3-point + hemisphere fill (Blender / SolidWorks viewport look)
+scene.add(new THREE.HemisphereLight(0xbfd4ff, 0x35302a, 0.7));
+
+// Z is up: lights set with Z = vertical
+const key = new THREE.DirectionalLight(0xffffff, 1.5);
+key.position.set(120, 80, 180);
+key.castShadow = true;
+key.shadow.mapSize.set(2048, 2048);
+key.shadow.camera.left = -200; key.shadow.camera.right = 200;
+key.shadow.camera.top = 200;   key.shadow.camera.bottom = -200;
+key.shadow.camera.near = 1;    key.shadow.camera.far = 800;
+key.shadow.bias = -0.0005;
+scene.add(key);
+
+const fill = new THREE.DirectionalLight(0x9bb6e0, 0.55);
+fill.position.set(-100, -80, 60);
+scene.add(fill);
+
+const rim = new THREE.DirectionalLight(0xffd9a8, 0.35);
+rim.position.set(-30, 200, 80);
+scene.add(rim);
+
+// Ground plane on XY (Z = 0), faces +Z — catches shadows. Reposition on reload.
+const groundMat = new THREE.ShadowMaterial({ opacity: 0.32 });
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(2000, 2000), groundMat);
+ground.position.z = -0.01;
+ground.receiveShadow = true;
+scene.add(ground);
+
+// Grid on XY plane (default GridHelper is on XZ, so rotate)
+const grid = new THREE.GridHelper(400, 40, 0x4a5060, 0x2a2f37);
+grid.rotation.x = Math.PI / 2;
+scene.add(grid);
+scene.add(new THREE.AxesHelper(40));
+
+// Parts: name -> { mesh, edges, color }
+const partGroup = new THREE.Group();
+scene.add(partGroup);
+const partRegistry = new Map();
+
+function resize() {
+  if (!panes['3d'].classList.contains('active')) return;
+  const r = view.getBoundingClientRect();
+  const tbH = view.querySelector('#toolbar').getBoundingClientRect().height;
+  renderer.setSize(r.width, Math.max(100, r.height - tbH), false);
+  camera.aspect = r.width / Math.max(1, r.height - tbH);
+  camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', resize); resize();
+
+function animate() { controls.update(); renderer.render(scene, camera); requestAnimationFrame(animate); }
+animate();
+
+const loader = new STLLoader();
+
+function hexToColor(hex) { return new THREE.Color(hex); }
+
+function disposePart(entry) {
+  partGroup.remove(entry.mesh);
+  entry.mesh.geometry.dispose();
+  if (entry.edges) {
+    partGroup.remove(entry.edges);
+    entry.edges.geometry.dispose();
+  }
+}
+
+async function loadPart(name, color) {
+  const url = '/part/' + encodeURIComponent(name) + '.stl?ts=' + Date.now();
+  const buf = await (await fetch(url)).arrayBuffer();
+  const geo = loader.parse(buf);
+  geo.computeVertexNormals();
+
+  const mat = new THREE.MeshPhysicalMaterial({
+    color: hexToColor(color),
+    metalness: 0.25, roughness: 0.45,
+    clearcoat: 0.15, clearcoatRoughness: 0.6,
+    envMapIntensity: 0.8,
+    clippingPlanes: currentClippingArray(),
+    clipShadows: true,
+    side: THREE.DoubleSide,
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  mesh.name = name;
+  partGroup.add(mesh);
+
+  // Black edges where dihedral angle > 25 deg — gives SolidWorks-style outlines
+  const edgesGeo = new THREE.EdgesGeometry(geo, 25);
+  const edges = new THREE.LineSegments(
+    edgesGeo,
+    new THREE.LineBasicMaterial({ color: 0x111418, linewidth: 1 })
+  );
+  edges.name = name + '__edges';
+  partGroup.add(edges);
+
+  return { mesh, edges, color };
+}
+
+let _autoframed = false;
+function frameScene() {
+  const box = new THREE.Box3();
+  partGroup.traverse(o => { if (o.isMesh) box.expandByObject(o); });
+  if (box.isEmpty()) return;
+  const size = box.getSize(new THREE.Vector3());
+  const center = box.getCenter(new THREE.Vector3());
+  const maxDim = Math.max(size.x, size.y, size.z);
+  const dist = maxDim * 2.2 + 30;
+  // standard CAD iso view: looking from +X/-Y/+Z toward the part
+  camera.position.set(center.x + dist * 0.9, center.y - dist * 0.9, center.z + dist * 0.7);
+  controls.target.copy(center);
+  controls.update();
+  // drop ground under the bbox (Z is vertical)
+  ground.position.z = Math.min(0, box.min.z) - 0.01;
+}
+
+async function reloadScene() {
+  try {
+    const manifest = await (await fetch('/scene/manifest?ts=' + Date.now())).json();
+    const wanted = new Set(manifest.parts.map(p => p.name));
+    // remove parts no longer in scene
+    for (const [name, entry] of partRegistry.entries()) {
+      if (!wanted.has(name)) { disposePart(entry); partRegistry.delete(name); }
+    }
+    // (re)load each part
+    let tris = 0;
+    for (const p of manifest.parts) {
+      const old = partRegistry.get(p.name);
+      if (old) disposePart(old);
+      try {
+        const entry = await loadPart(p.name, p.color);
+        partRegistry.set(p.name, entry);
+        tris += entry.mesh.geometry.attributes.position.count / 3;
+      } catch (e) { console.warn('load failed for', p.name, e); }
+    }
+    document.getElementById('status').textContent =
+      manifest.parts.length === 0
+        ? 'scene empty'
+        : `${manifest.parts.length} part(s), ${tris|0} triangles`;
+    if (manifest.parts.length && !_autoframed) {
+      frameScene(); _autoframed = true;
+    }
+  } catch (e) { console.error(e); }
+}
+reloadScene();
+document.getElementById('fitBtn')?.addEventListener('click', () => { _autoframed = false; frameScene(); _autoframed = true; });
+
+// ----- section clip wiring -----
+const secEnableEl = document.getElementById('secEnable');
+const secAxisEl = document.getElementById('secAxis');
+const secSliderEl = document.getElementById('secSlider');
+secEnableEl.addEventListener('change', () => {
+  clipEnabled = secEnableEl.checked;
+  updateClipPlane();
+  applyClippingToAll();
+});
+secAxisEl.addEventListener('change', () => { updateClipPlane(); });
+secSliderEl.addEventListener('input', () => { updateClipPlane(); });
+updateClipPlane();
+
+// ----- measurement tool -----
+const measureBtn = document.getElementById('measureBtn');
+const measureClearBtn = document.getElementById('measureClear');
+const statusEl = document.getElementById('status');
+const measureGroup = new THREE.Group();
+scene.add(measureGroup);
+let measureMode = false;
+const measurePoints = [];
+
+function clearMeasure() {
+  while (measureGroup.children.length) {
+    const c = measureGroup.children.pop();
+    if (c.geometry) c.geometry.dispose();
+    if (c.material) c.material.dispose();
+  }
+  measurePoints.length = 0;
+}
+function setMeasureMode(on) {
+  measureMode = on;
+  measureBtn.classList.toggle('active', on);
+  canvas.style.cursor = on ? 'crosshair' : '';
+}
+measureBtn.addEventListener('click', () => setMeasureMode(!measureMode));
+measureClearBtn.addEventListener('click', () => {
+  clearMeasure();
+  if (statusEl) statusEl.textContent = 'measurement cleared';
+});
+
+const raycaster = new THREE.Raycaster();
+const ndc = new THREE.Vector2();
+canvas.addEventListener('pointerdown', (e) => {
+  if (!measureMode || e.button !== 0) return;
+  const rect = canvas.getBoundingClientRect();
+  ndc.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+  ndc.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+  raycaster.setFromCamera(ndc, camera);
+  const meshes = [];
+  partGroup.traverse(o => { if (o.isMesh) meshes.push(o); });
+  const hits = raycaster.intersectObjects(meshes, false);
+  if (!hits.length) return;
+  if (measurePoints.length >= 2) clearMeasure();
+  const p = hits[0].point.clone();
+  measurePoints.push(p);
+  const sph = new THREE.Mesh(
+    new THREE.SphereGeometry(1.2, 16, 12),
+    new THREE.MeshBasicMaterial({ color: 0xffcc33, depthTest: false })
+  );
+  sph.renderOrder = 999;
+  sph.position.copy(p);
+  measureGroup.add(sph);
+  if (measurePoints.length === 2) {
+    const a = measurePoints[0], b = measurePoints[1];
+    const geom = new THREE.BufferGeometry().setFromPoints([a, b]);
+    const line = new THREE.Line(geom, new THREE.LineBasicMaterial({
+      color: 0xffcc33, depthTest: false }));
+    line.renderOrder = 999;
+    measureGroup.add(line);
+    const d = a.distanceTo(b);
+    if (statusEl) statusEl.textContent = `distance: ${d.toFixed(2)} mm`;
+  } else {
+    if (statusEl) statusEl.textContent = 'measure: pick second point';
+  }
+});
+
+// ----- BOM tab -----
+async function refreshBOM() {
+  const tbody = document.querySelector('#bomtable tbody');
+  const density = parseFloat(document.getElementById('bomDensity').value) || 0;
+  const statusBom = document.getElementById('bomstatus');
+  try {
+    const manifest = await (await fetch('/scene/manifest?ts=' + Date.now())).json();
+    if (!manifest.parts.length) {
+      tbody.innerHTML = '<tr><td colspan="5" style="padding:14px;opacity:0.6">(no parts)</td></tr>';
+      statusBom.textContent = '';
+      return;
+    }
+    statusBom.textContent = 'computing volumes...';
+    const rows = [];
+    for (const p of manifest.parts) {
+      try {
+        const r = await (await fetch('/part/' + encodeURIComponent(p.name) + '/volume?ts=' + Date.now())).json();
+        if (r.error) { rows.push({ name: p.name, color: p.color, err: r.error }); continue; }
+        const bb = r.bbox;
+        const lx = bb[3] - bb[0], ly = bb[4] - bb[1], lz = bb[5] - bb[2];
+        const vol = r.volume_mm3;
+        const mass = vol * density * 1e-3;
+        rows.push({ name: p.name, color: p.color,
+                    lx, ly, lz, vol, mass });
+      } catch (e) {
+        rows.push({ name: p.name, color: p.color, err: String(e) });
+      }
+    }
+    tbody.innerHTML = rows.map(r => {
+      if (r.err) return `<tr><td><span class="swatch" style="background:${r.color}"></span></td>
+        <td>${r.name}</td><td colspan="3" style="opacity:0.6">${r.err}</td></tr>`;
+      return `<tr>
+        <td><span class="swatch" style="background:${r.color}"></span></td>
+        <td>${r.name}</td>
+        <td>${r.lx.toFixed(2)} x ${r.ly.toFixed(2)} x ${r.lz.toFixed(2)}</td>
+        <td class="num">${r.vol.toFixed(2)}</td>
+        <td class="num">${r.mass.toFixed(3)}</td>
+      </tr>`;
+    }).join('');
+    statusBom.textContent = `${rows.length} part(s) @ ${density} g/cm^3`;
+  } catch (e) {
+    statusBom.textContent = 'error: ' + e;
+  }
+}
+document.getElementById('bomrefresh').addEventListener('click', refreshBOM);
+document.getElementById('bomDensity').addEventListener('input', () => {
+  // recompute mass column inline without re-fetching volumes
+  const density = parseFloat(document.getElementById('bomDensity').value) || 0;
+  const rows = document.querySelectorAll('#bomtable tbody tr');
+  rows.forEach(tr => {
+    const tds = tr.querySelectorAll('td');
+    if (tds.length < 5) return;
+    const vol = parseFloat(tds[3].textContent);
+    if (!isFinite(vol)) return;
+    tds[4].textContent = (vol * density * 1e-3).toFixed(3);
+  });
+  const statusBom = document.getElementById('bomstatus');
+  if (statusBom && statusBom.textContent) {
+    statusBom.textContent = statusBom.textContent.replace(/@ [\d.]+ g\/cm\^3/, `@ ${density} g/cm^3`);
+  }
+});
+
+// ----- sketches tab -----
+const skSelect = document.getElementById('skselect');
+const skView   = document.getElementById('skview');
+const skInfo   = document.getElementById('skinfo');
+
+async function refreshSketches() {
+  try {
+    const data = await (await fetch('/sketches')).json();
+    const cur = skSelect.value;
+    skSelect.innerHTML = '<option value="">(none)</option>'
+      + data.names.map(n => `<option value="${n}">${n}</option>`).join('');
+    if (data.names.includes(cur)) skSelect.value = cur;
+    else if (data.names.length) skSelect.value = data.names[0];
+    skSelect._info = data.info;
+    renderSketch();
+  } catch (e) { console.error(e); }
+}
+async function renderSketch() {
+  const n = skSelect.value;
+  if (!n) { skView.textContent = 'Pick a sketch to view.'; skInfo.textContent = '(no sketch selected)'; return; }
+  try {
+    const svg = await (await fetch('/sketch/' + encodeURIComponent(n) + '.svg?ts=' + Date.now())).text();
+    skView.innerHTML = svg;
+    skInfo.textContent = (skSelect._info && skSelect._info[n]) || '';
+  } catch (e) { skView.textContent = 'Error loading sketch.'; }
+}
+skSelect.addEventListener('change', renderSketch);
+document.getElementById('skrefresh').addEventListener('click', refreshSketches);
+
+// ----- assemblies tab -----
+const asmSelect = document.getElementById('asmselect');
+const asmInfo   = document.getElementById('asminfo');
+async function refreshAssemblies() {
+  try {
+    const data = await (await fetch('/assemblies')).json();
+    const cur = asmSelect.value;
+    asmSelect.innerHTML = '<option value="">(none)</option>'
+      + data.names.map(n => `<option value="${n}">${n}</option>`).join('');
+    if (data.names.includes(cur)) asmSelect.value = cur;
+    else if (data.names.length) asmSelect.value = data.names[0];
+    asmSelect._info = data.info;
+    renderAssembly();
+  } catch (e) { console.error(e); }
+}
+function renderAssembly() {
+  const n = asmSelect.value;
+  asmInfo.textContent = (n && asmSelect._info && asmSelect._info[n]) || '(no assembly selected)';
+}
+asmSelect.addEventListener('change', renderAssembly);
+document.getElementById('asmrefresh').addEventListener('click', refreshAssemblies);
+
+// ----- parts tab -----
+async function refreshParts() {
+  try {
+    const d = await (await fetch('/parts')).json();
+    document.getElementById('partsinfo').textContent = d.text;
+  } catch (e) { document.getElementById('partsinfo').textContent = 'error'; }
+}
+document.getElementById('partsrefresh').addEventListener('click', refreshParts);
+
+// ----- chat -----
+const log = document.getElementById('log');
+function addMsg(cls, who, text) {
+  const div = document.createElement('div');
+  div.className = 'msg ' + cls;
+  div.innerHTML = `<div class="who">${who}</div>`;
+  const body = document.createElement('div');
+  body.textContent = text;
+  div.appendChild(body);
+  log.appendChild(div);
+  log.scrollTop = log.scrollHeight;
+}
+
+// ----- mode toggle -----
+let mode = 'chat';
+const modeChat  = document.getElementById('modeChat');
+const modeAgent = document.getElementById('modeAgent');
+const modeHint  = document.getElementById('modeHint');
+function setMode(m) {
+  mode = m;
+  modeChat .classList.toggle('active', m === 'chat');
+  modeAgent.classList.toggle('active', m === 'agent');
+  if (m === 'chat') {
+    modeHint.textContent = 'single-turn commands';
+    msgEl.placeholder = "describe a part, or type 'help'";
+  } else {
+    modeHint.textContent = 'planner + modeler + visual critic';
+    msgEl.placeholder = 'design brief, e.g. "L-bracket 40x40x3 mm with two M4 mounting holes"';
+  }
+}
+modeChat .addEventListener('click', () => setMode('chat'));
+modeAgent.addEventListener('click', () => setMode('agent'));
+
+const msgEl = document.getElementById('msg');
+const sendBtn = document.getElementById('send');
+
+async function sendAgent(text) {
+  addMsg('user', 'brief', text);
+  if (!apikeyEl.value) {
+    addMsg('bot', 'error', 'Design Agent needs an Anthropic API key (the visual critic uses Claude vision). Paste one in the settings panel above.');
+    return;
+  }
+  addMsg('system', 'agent', 'starting design loop...');
+  const res = await fetch('/agent/design', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ brief: text, api_key: apikeyEl.value, model: modelEl.value }),
+  });
+  const data = await res.json();
+  if (data.error) { addMsg('bot', 'error', data.error); return; }
+  for (const ev of (data.events || [])) {
+    const cls = ev.role === 'planner'  ? 'plan'
+              : ev.role === 'modeler'  ? (ev.kind === 'tool' ? 'ops' : 'bot')
+              : ev.role === 'critic'   ? ('critic' + (ev.data?.verdict === 'done' ? ' done' : ''))
+              : 'system';
+    const who = ev.role + (ev.kind ? '/' + ev.kind : '');
+    let body = ev.text;
+    if (ev.role === 'planner' && ev.data?.plan) {
+      body += '\n' + ev.data.plan.map((m, i) =>
+        `  ${i+1}. ${m.name}: ${m.intent}`).join('\n');
+    }
+    if (ev.role === 'modeler' && ev.data?.ops?.length) {
+      body += '\n  ops: ' + ev.data.ops.length;
+    }
+    if (ev.role === 'critic' && ev.data?.specific_changes?.length) {
+      body += '\n  changes: ' + ev.data.specific_changes.join('; ');
+    }
+    addMsg(cls, who, body);
+  }
+  reloadScene();
+}
+
+async function send() {
+  const text = msgEl.value.trim();
+  if (!text) return;
+  msgEl.value = '';
+  sendBtn.disabled = true; sendBtn.textContent = '...';
+  try {
+    if (mode === 'agent') { await sendAgent(text); reloadScene(); return; }
+    addMsg('user', 'you', text);
+    const res = await fetch('/chat', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ message: text, api_key: apikeyEl.value, model: modelEl.value }),
+    });
+    const data = await res.json();
+    if (data.ops && data.ops.length) addMsg('ops', 'ops', data.ops.join('\n'));
+    addMsg('bot', apikeyEl.value ? 'claude' : 'cad', data.reply || '(no reply)');
+    reloadScene();
+    // refresh whichever side tab is open
+    const active = document.querySelector('.tab.active').dataset.tab;
+    if (active === 'sk') refreshSketches();
+    if (active === 'asm') refreshAssemblies();
+    if (active === 'parts') refreshParts();
+    if (active === 'bom') refreshBOM();
+  } catch (e) {
+    addMsg('bot', 'error', String(e));
+  } finally {
+    sendBtn.disabled = false; sendBtn.textContent = 'Send';
+    msgEl.focus();
+  }
+}
+sendBtn.addEventListener('click', send);
+msgEl.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+});
+
+document.getElementById('reset').addEventListener('click', async () => {
+  if (!confirm('Clear scene, sketches, assemblies, and chat history?')) return;
+  await fetch('/reset', { method: 'POST' });
+  log.innerHTML = '';
+  reloadScene();
+  refreshSketches(); refreshAssemblies(); refreshParts(); refreshBOM();
+});
+document.getElementById('exportStl').addEventListener('click',
+  () => window.location.href = '/export/stl');
+document.getElementById('exportStep').addEventListener('click',
+  () => window.location.href = '/export/step');
+
+addMsg('bot', 'cad', `Welcome. Each part shows in its own colour with SolidWorks-style edge outlines.
+
+  Quick build:          cyl hub 12 6
+                        torus ring 14 2 0 0 6
+                        poly cap 6 10 4 0 0 6
+                        ppat spoke hub 6
+
+  Parametric sketch:    sk new profile XY
+                        sk rect profile p 0 0 40 20
+                        sk circle profile h 20 10 4
+                        sk solve profile
+                        sk ext profile bracket 5
+
+  Assembly:             asm new robot
+                        asm add robot base_part hub 0 0 0
+                        asm add robot top ring  0 0 10
+                        asm solve robot
+
+Type 'help' for the full parser command list, or paste an Anthropic API key
+above and describe the part in plain English.`);
+</script>
+</body>
+</html>
