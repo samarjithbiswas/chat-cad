@@ -174,6 +174,128 @@ class CadEngine:
         self.parts[name] = p
         return f"drilled hole r={radius} in top face of '{name}'"
 
+    # ---------- selective fillet / chamfer ---------- #
+    def fillet_edges(self, name: str, radius: float,
+                     selector: str = "all") -> str:
+        """Fillet edges matching a CadQuery selector.
+        Common selectors: 'all', '+Z' (top), '-Z' (bottom), '|Z' (vertical),
+        '>>Z[-1]' (highest edge in Z), '%LINE'.
+        """
+        self._snapshot()
+        wp = self._require(name)
+        edges = wp.edges() if selector == "all" else wp.edges(selector)
+        if len(edges.vals()) == 0:
+            raise RuntimeError(f"no edges matched selector '{selector}'")
+        self.parts[name] = edges.fillet(float(radius))
+        return f"filleted {len(edges.vals())} edge(s) of '{name}' r={radius} ({selector})"
+
+    def chamfer_edges(self, name: str, distance: float,
+                      selector: str = "all") -> str:
+        self._snapshot()
+        wp = self._require(name)
+        edges = wp.edges() if selector == "all" else wp.edges(selector)
+        if len(edges.vals()) == 0:
+            raise RuntimeError(f"no edges matched selector '{selector}'")
+        self.parts[name] = edges.chamfer(float(distance))
+        return f"chamfered {len(edges.vals())} edge(s) of '{name}' d={distance} ({selector})"
+
+    # ---------- finished holes ---------- #
+    def counterbore(self, name: str, diameter: float, cbore_diameter: float,
+                    cbore_depth: float, depth: float | None = None,
+                    face: str = "+Z") -> str:
+        """Drill a counterbore on `face`. Through-hole if depth omitted."""
+        self._snapshot()
+        wp = self._require(name).faces(face).workplane()
+        self.parts[name] = wp.cboreHole(float(diameter),
+                                        float(cbore_diameter),
+                                        float(cbore_depth),
+                                        None if depth is None else float(depth))
+        return (f"counterbore on '{name}' d={diameter} cbore={cbore_diameter} "
+                f"cdepth={cbore_depth} ({face})")
+
+    def countersink(self, name: str, diameter: float, csk_diameter: float,
+                    csk_angle: float = 82.0, depth: float | None = None,
+                    face: str = "+Z") -> str:
+        self._snapshot()
+        wp = self._require(name).faces(face).workplane()
+        self.parts[name] = wp.cskHole(float(diameter),
+                                      float(csk_diameter),
+                                      float(csk_angle),
+                                      None if depth is None else float(depth))
+        return (f"countersink on '{name}' d={diameter} csk={csk_diameter} "
+                f"angle={csk_angle} ({face})")
+
+    def tapped_hole(self, name: str, M_spec: str, depth: float,
+                    face: str = "+Z") -> str:
+        """Threaded hole sized for an M-spec bolt.
+        Visualisation only: the hole diameter is the tap-drill size; no
+        helical thread geometry is cut (would multiply triangle count ~50x).
+        """
+        from library import _m
+        d, _ = _m(M_spec)
+        # Tap-drill diameter ~ d * 0.8 (rough approximation; ISO has tables)
+        tap_d = d * 0.8
+        self._snapshot()
+        p = (self._require(name).faces(face).workplane()
+             .hole(tap_d, float(depth)))
+        self.parts[name] = p
+        return f"tapped hole {M_spec} depth {depth} on '{name}' ({face})"
+
+    # ---------- sketch-driven features on an existing part ---------- #
+    def boss_extrude(self, base: str, sketch: str, depth: float,
+                     face: str = "+Z") -> str:
+        """Extrude a sketch from a face of `base` and union it onto base."""
+        self._snapshot()
+        sk = self.sketches._s(sketch)
+        wp = self.sketches._build_workplane(sk)
+        boss = wp.extrude(float(depth))
+        self.parts[base] = self._require(base).union(boss)
+        return f"boss-extruded sketch '{sketch}' by {depth} onto '{base}'"
+
+    def cut_extrude(self, base: str, sketch: str, depth: float,
+                    face: str = "+Z") -> str:
+        """Extrude a sketch and CUT it from `base` (pocket / hole pattern)."""
+        self._snapshot()
+        sk = self.sketches._s(sketch)
+        wp = self.sketches._build_workplane(sk)
+        tool = wp.extrude(float(depth))
+        self.parts[base] = self._require(base).cut(tool)
+        return f"cut-extruded sketch '{sketch}' by {depth} from '{base}'"
+
+    # ---------- pattern along a sketch path ---------- #
+    def pattern_along_curve(self, prefix: str, src: str, sketch: str,
+                            count: int) -> str:
+        """Place `count` copies of `src` at evenly spaced points along the
+        first chain of lines in `sketch`. Simple polyline approximation; great
+        for bolt-circles defined by a sketch.
+        """
+        self._snapshot()
+        sk = self.sketches._s(sketch)
+        # collect ordered points from line chain
+        if not sk.lines and not sk.circles:
+            raise RuntimeError(f"sketch '{sketch}' has no path to follow")
+        if sk.circles:
+            # use first circle's center + radius as a bolt-circle
+            (c, r) = list(sk.circles.values())[0]
+            cx, cy, _ = sk.points[c]
+        else:
+            # use centroid of all line endpoints as anchor; fall back to averaging
+            pts = [sk.points[p][:2] for ln in sk.lines.values() for p in ln]
+            xs = [p[0] for p in pts]; ys = [p[1] for p in pts]
+            cx, cy = sum(xs) / len(xs), sum(ys) / len(ys)
+            r = max(((p[0] - cx) ** 2 + (p[1] - cy) ** 2) ** 0.5 for p in pts)
+        base = self._require(src)
+        made = []
+        import math
+        for i in range(int(count)):
+            a = 2 * math.pi * i / int(count)
+            x = cx + r * math.cos(a)
+            y = cy + r * math.sin(a)
+            nm = f"{prefix}_{i}"
+            self.parts[nm] = base.translate((x, y, 0))
+            made.append(nm)
+        return f"pattern-along-curve '{prefix}': {made}"
+
     # ---------- patterns / mirror ---------- #
     def mirror(self, out: str, src: str, plane: str = "XY") -> str:
         """Mirror a part across XY, XZ, or YZ plane; result stored as 'out'."""

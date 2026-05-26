@@ -515,6 +515,106 @@ TOOLS = [
                        "thickness": {"type": "number"},
                        "x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}},
         "required": ["name", "length", "width", "thickness"]}},
+    {"name": "lib_bearing",
+     "description": "Deep-groove ball bearing visualisation: bore, od, width in mm.",
+     "input_schema": {"type": "object",
+        "properties": {"name": {"type": "string"},
+                       "bore": {"type": "number"}, "od": {"type": "number"},
+                       "width": {"type": "number"},
+                       "x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}},
+        "required": ["name", "bore", "od", "width"]}},
+    {"name": "lib_threaded_insert",
+     "description": "Heat-set / press-fit threaded insert sized for an M-bolt.",
+     "input_schema": {"type": "object",
+        "properties": {"name": {"type": "string"}, "spec": {"type": "string"},
+                       "length": {"type": "number"},
+                       "x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}},
+        "required": ["name", "spec", "length"]}},
+    {"name": "lib_dowel",
+     "description": "Cylindrical dowel pin with chamfered ends.",
+     "input_schema": {"type": "object",
+        "properties": {"name": {"type": "string"},
+                       "diameter": {"type": "number"}, "length": {"type": "number"},
+                       "x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}},
+        "required": ["name", "diameter", "length"]}},
+    {"name": "lib_hinge",
+     "description": "Barrel hinge with N knuckles, two leaves, and a pin.",
+     "input_schema": {"type": "object",
+        "properties": {"name": {"type": "string"},
+                       "length": {"type": "number"}, "leaf_width": {"type": "number"},
+                       "pin_d": {"type": "number"}, "knuckles": {"type": "integer"},
+                       "leaf_thickness": {"type": "number"},
+                       "x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}},
+        "required": ["name", "length", "leaf_width", "pin_d"]}},
+    {"name": "lib_pulley",
+     "description": "Single V-groove pulley; bore is optional through-hole.",
+     "input_schema": {"type": "object",
+        "properties": {"name": {"type": "string"},
+                       "od": {"type": "number"}, "width": {"type": "number"},
+                       "bore": {"type": "number"}, "belt_width": {"type": "number"},
+                       "x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}},
+        "required": ["name", "od", "width"]}},
+    # ---------------- selective fillet / chamfer ---------------- #
+    {"name": "fillet_edges",
+     "description": "Fillet edges matching a CadQuery selector ('all','+Z','-Z','|Z','>Z',etc).",
+     "input_schema": {"type": "object",
+        "properties": {"name": {"type": "string"},
+                       "radius": {"type": "number"},
+                       "selector": {"type": "string"}},
+        "required": ["name", "radius"]}},
+    {"name": "chamfer_edges",
+     "description": "Chamfer edges matching a CadQuery selector.",
+     "input_schema": {"type": "object",
+        "properties": {"name": {"type": "string"},
+                       "distance": {"type": "number"},
+                       "selector": {"type": "string"}},
+        "required": ["name", "distance"]}},
+    # ---------------- finished holes ---------------- #
+    {"name": "counterbore",
+     "description": "Counterbored hole on a face. Common for socket-head cap screws.",
+     "input_schema": {"type": "object",
+        "properties": {"name": {"type": "string"},
+                       "diameter": {"type": "number"},
+                       "cbore_diameter": {"type": "number"},
+                       "cbore_depth": {"type": "number"},
+                       "depth": {"type": "number"},
+                       "face": {"type": "string"}},
+        "required": ["name", "diameter", "cbore_diameter", "cbore_depth"]}},
+    {"name": "countersink",
+     "description": "Countersunk hole on a face. Common for flat-head screws (82deg default).",
+     "input_schema": {"type": "object",
+        "properties": {"name": {"type": "string"},
+                       "diameter": {"type": "number"},
+                       "csk_diameter": {"type": "number"},
+                       "csk_angle": {"type": "number"},
+                       "depth": {"type": "number"},
+                       "face": {"type": "string"}},
+        "required": ["name", "diameter", "csk_diameter"]}},
+    {"name": "tapped_hole",
+     "description": "Threaded hole sized for an M-bolt (visualisation only; no helical thread cut).",
+     "input_schema": {"type": "object",
+        "properties": {"name": {"type": "string"}, "M_spec": {"type": "string"},
+                       "depth": {"type": "number"}, "face": {"type": "string"}},
+        "required": ["name", "M_spec", "depth"]}},
+    # ---------------- sketch-driven features ---------------- #
+    {"name": "boss_extrude",
+     "description": "Extrude a sketch and UNION it onto an existing part (SolidWorks 'Boss/Extrude').",
+     "input_schema": {"type": "object",
+        "properties": {"base": {"type": "string"}, "sketch": {"type": "string"},
+                       "depth": {"type": "number"}, "face": {"type": "string"}},
+        "required": ["base", "sketch", "depth"]}},
+    {"name": "cut_extrude",
+     "description": "Extrude a sketch and CUT it from an existing part (pockets, hole arrays).",
+     "input_schema": {"type": "object",
+        "properties": {"base": {"type": "string"}, "sketch": {"type": "string"},
+                       "depth": {"type": "number"}, "face": {"type": "string"}},
+        "required": ["base", "sketch", "depth"]}},
+    {"name": "pattern_along_curve",
+     "description": "Stamp `count` copies of `src` along the bolt-circle defined by a sketch.",
+     "input_schema": {"type": "object",
+        "properties": {"prefix": {"type": "string"}, "src": {"type": "string"},
+                       "sketch": {"type": "string"}, "count": {"type": "integer"}},
+        "required": ["prefix", "src", "sketch", "count"]}},
     # ---------------- advanced 3D ops ---------------- #
     {"name": "sweep",
      "description": "Sweep a 2D profile sketch along a 2D path sketch into a 3D part.",
@@ -680,6 +780,21 @@ _HELP = """commands (fallback parser, used when no Claude API key is set):
   spring <name> <wire_d> <coil_d> <pitch> <turns> [x y z]
   slot   <name> <length> <width> <depth> [x y z]
   key    <name> <length> <width> <thickness>   [x y z]
+  bearing <name> <bore> <od> <width> [x y z]
+  insert  <name> <M-spec> <length> [x y z]
+  dowel   <name> <d> <L> [x y z]
+  hinge   <name> <L> <leaf_w> <pin_d> [knuckles] [leaf_t] [x y z]
+  pulley  <name> <od> <width> [bore] [belt_w] [x y z]
+
+ Selective fillet / chamfer / holes / sketch-driven features:
+  filletx  <name> <radius> [selector]     selector e.g. >Z, |Z, +X, all
+  chamferx <name> <dist>   [selector]
+  cbore   <name> <d> <cbore_d> <cbore_depth> [depth] [face]
+  csink   <name> <d> <csk_d> [angle] [depth] [face]
+  tap     <name> <M-spec> <depth> [face]
+  boss    <base> <sketch> <depth> [face]
+  pocket  <base> <sketch> <depth> [face]
+  cpat    <prefix> <src> <sketch> <count>    pattern along a sketch's bolt-circle
   move <name> <dx> <dy> <dz>
   rot  <name> <X|Y|Z> <deg>
   union <out> <a> <b>
@@ -902,6 +1017,77 @@ def run_parser(engine: CadEngine, line: str) -> str:
             xyz = [_f(v) for v in rest] + [0, 0, 0]
             return engine.library.key(name, _f(length), _f(width),
                                       _f(thickness), xyz[0], xyz[1], xyz[2])
+        if cmd == "bearing":
+            name, bore, od, width, *rest = a
+            xyz = [_f(v) for v in rest] + [0, 0, 0]
+            return engine.library.bearing(name, _f(bore), _f(od), _f(width),
+                                          xyz[0], xyz[1], xyz[2])
+        if cmd == "insert":
+            name, spec, length, *rest = a
+            xyz = [_f(v) for v in rest] + [0, 0, 0]
+            return engine.library.threaded_insert(name, spec, _f(length),
+                                                  xyz[0], xyz[1], xyz[2])
+        if cmd == "dowel":
+            name, d, L, *rest = a
+            xyz = [_f(v) for v in rest] + [0, 0, 0]
+            return engine.library.dowel(name, _f(d), _f(L),
+                                        xyz[0], xyz[1], xyz[2])
+        if cmd == "hinge":
+            # hinge <name> <length> <leaf_w> <pin_d> [knuckles] [leaf_t] [x y z]
+            name, L, lw, pd, *rest = a
+            knuckles = int(rest[0]) if len(rest) > 0 else 3
+            leaf_t = _f(rest[1]) if len(rest) > 1 else 2.0
+            xyz = [_f(v) for v in rest[2:]] + [0, 0, 0]
+            return engine.library.hinge(name, _f(L), _f(lw), _f(pd),
+                                        knuckles, leaf_t,
+                                        xyz[0], xyz[1], xyz[2])
+        if cmd == "pulley":
+            # pulley <name> <od> <width> [bore] [belt_w] [x y z]
+            name, od, w, *rest = a
+            bore = _f(rest[0]) if len(rest) > 0 else 0
+            belt_w = _f(rest[1]) if len(rest) > 1 else 6.0
+            xyz = [_f(v) for v in rest[2:]] + [0, 0, 0]
+            return engine.library.pulley(name, _f(od), _f(w), bore, belt_w,
+                                         xyz[0], xyz[1], xyz[2])
+        if cmd in ("fillete", "filletx"):
+            # selective fillet:  filletx <name> <radius> [selector]
+            name, r, *rest = a
+            sel = rest[0] if rest else "all"
+            return engine.fillet_edges(name, _f(r), sel)
+        if cmd == "chamferx":
+            name, d, *rest = a
+            sel = rest[0] if rest else "all"
+            return engine.chamfer_edges(name, _f(d), sel)
+        if cmd == "cbore":
+            # cbore <name> <d> <cbore_d> <cbore_depth> [depth] [face]
+            name, d, cd, cdep, *rest = a
+            depth = _f(rest[0]) if len(rest) > 0 else None
+            face = rest[1] if len(rest) > 1 else "+Z"
+            return engine.counterbore(name, _f(d), _f(cd), _f(cdep),
+                                      depth, face)
+        if cmd == "csink":
+            # csink <name> <d> <csk_d> [angle] [depth] [face]
+            name, d, csd, *rest = a
+            ang = _f(rest[0]) if len(rest) > 0 else 82.0
+            depth = _f(rest[1]) if len(rest) > 1 else None
+            face = rest[2] if len(rest) > 2 else "+Z"
+            return engine.countersink(name, _f(d), _f(csd), ang, depth, face)
+        if cmd == "tap":
+            name, spec, depth, *rest = a
+            face = rest[0] if rest else "+Z"
+            return engine.tapped_hole(name, spec, _f(depth), face)
+        if cmd == "boss":
+            # boss <base> <sketch> <depth> [face]
+            base, sk, depth, *rest = a
+            face = rest[0] if rest else "+Z"
+            return engine.boss_extrude(base, sk, _f(depth), face)
+        if cmd == "pocket":
+            base, sk, depth, *rest = a
+            face = rest[0] if rest else "+Z"
+            return engine.cut_extrude(base, sk, _f(depth), face)
+        if cmd == "cpat":
+            prefix, src, sk, count = a
+            return engine.pattern_along_curve(prefix, src, sk, int(count))
         if cmd == "box":
             name, L, W, H, *rest = a
             xyz = [_f(v) for v in rest] + [0, 0, 0]

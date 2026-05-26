@@ -158,6 +158,100 @@ def key_block(length: float, width: float, thickness: float) -> cq.Workplane:
     return cq.Workplane("XY").box(length, width, thickness)
 
 
+# ---------------- bearings / pins / inserts ---------------- #
+def ball_bearing(bore: float, od: float, width: float) -> cq.Workplane:
+    """Deep-groove ball bearing visualisation: outer race + inner race +
+    ring of balls. Not for analysis; rolling elements are decorative.
+    """
+    outer = (cq.Workplane("XY").circle(od / 2).circle(od / 2 - 0.18 * (od - bore) / 2)
+             .extrude(width))
+    inner = (cq.Workplane("XY").circle(bore / 2 + 0.18 * (od - bore) / 2)
+             .circle(bore / 2).extrude(width))
+    # ring of balls in the gap
+    ball_r = (od - bore) / 4 * 0.85
+    pitch_r = (od + bore) / 4
+    n = max(6, int(2 * math.pi * pitch_r / (2.2 * ball_r)))
+    balls = cq.Workplane("XY")
+    for i in range(n):
+        a = 2 * math.pi * i / n
+        balls = balls.union(
+            cq.Workplane("XY").sphere(ball_r).translate(
+                (pitch_r * math.cos(a), pitch_r * math.sin(a), width / 2)))
+    return outer.union(inner).union(balls)
+
+
+def threaded_insert(M_spec: str, length: float) -> cq.Workplane:
+    """Brass heat-set insert: smooth knurl-style outer + threaded ID hole.
+    OD is +0.4 mm over M-bolt OD to simulate the insert wall.
+    """
+    d, _ = _m(M_spec)
+    od = d + 1.2
+    return (cq.Workplane("XY").circle(od / 2).extrude(float(length))
+            .faces("+Z").workplane().hole(d, float(length) * 0.9))
+
+
+def dowel_pin(diameter: float, length: float) -> cq.Workplane:
+    """Cylindrical dowel pin with small chamfers on both ends."""
+    chamfer = min(diameter * 0.15, 0.4)
+    body = cq.Workplane("XY").circle(diameter / 2).extrude(length)
+    body = body.faces(">Z").chamfer(chamfer)
+    body = body.faces("<Z").chamfer(chamfer)
+    return body
+
+
+def hinge(length: float, leaf_width: float, pin_d: float,
+          knuckles: int = 3, leaf_thickness: float = 2.0) -> cq.Workplane:
+    """Barrel hinge with N knuckles. Returns a single fused body (both leaves
+    and pin merged) — fine for visualisation.
+    """
+    knuckles = max(3, int(knuckles))
+    knuckle_len = length / knuckles
+    knuckle_or = pin_d * 0.9
+    # leaf A (back): rectangle behind the pin axis (negative Y)
+    leaf_a = (cq.Workplane("XY")
+              .moveTo(0, -leaf_width / 2 - knuckle_or)
+              .rect(length, leaf_width, centered=False)
+              .extrude(leaf_thickness)
+              .translate((-length / 2, knuckle_or, 0)))
+    leaf_b = (cq.Workplane("XY")
+              .moveTo(0, knuckle_or)
+              .rect(length, leaf_width, centered=False)
+              .extrude(leaf_thickness)
+              .translate((-length / 2, 0, 0)))
+    body = leaf_a.union(leaf_b)
+    # knuckles: cylinders along X with central pin bore
+    for i in range(knuckles):
+        x0 = -length / 2 + i * knuckle_len
+        knuckle = (cq.Workplane("YZ").workplane(offset=x0)
+                   .circle(knuckle_or).extrude(knuckle_len))
+        body = body.union(knuckle)
+    # pin through the centre
+    pin = (cq.Workplane("YZ").workplane(offset=-length / 2)
+           .circle(pin_d / 2).extrude(length))
+    body = body.union(pin)
+    return body
+
+
+def v_pulley(od: float, width: float, bore: float,
+             belt_width: float = 6.0) -> cq.Workplane:
+    """Single V-groove pulley. Groove is a 40-deg trapezoidal cut."""
+    body = cq.Workplane("XY").circle(od / 2).extrude(width)
+    # groove profile on the side: revolved trapezoid cut
+    groove_depth = belt_width * 0.6
+    half_open = belt_width / 2
+    half_inner = max(0.3, half_open - groove_depth * math.tan(math.radians(20)))
+    cutter = (cq.Workplane("XZ")
+              .moveTo(od / 2 + 0.1, width / 2 - half_open)
+              .lineTo(od / 2 - groove_depth, width / 2 - half_inner)
+              .lineTo(od / 2 - groove_depth, width / 2 + half_inner)
+              .lineTo(od / 2 + 0.1, width / 2 + half_open)
+              .close().revolve(360))
+    body = body.cut(cutter)
+    if bore > 0:
+        body = body.faces("+Z").workplane().hole(bore)
+    return body
+
+
 # ---------------- engine binding ---------------- #
 class LibraryEngine:
     """Routes `lib_*` ops to the helpers above and stores results as named parts."""
@@ -221,6 +315,42 @@ class LibraryEngine:
                        float(thickness)).translate((x, y, z))
         self._store(name, wp)
         return f"created key '{name}' {length}x{width}x{thickness}"
+
+    # ---- bearings / pins / inserts ---- #
+    def bearing(self, name: str, bore: float, od: float, width: float,
+                x: float = 0, y: float = 0, z: float = 0) -> str:
+        wp = ball_bearing(float(bore), float(od), float(width)).translate((x, y, z))
+        self._store(name, wp)
+        return f"created ball bearing '{name}' bore={bore} od={od} W={width}"
+
+    def threaded_insert(self, name: str, spec: str, length: float,
+                        x: float = 0, y: float = 0, z: float = 0) -> str:
+        wp = threaded_insert(spec, float(length)).translate((x, y, z))
+        self._store(name, wp)
+        return f"created {spec} threaded insert '{name}' length={length}"
+
+    def dowel(self, name: str, diameter: float, length: float,
+              x: float = 0, y: float = 0, z: float = 0) -> str:
+        wp = dowel_pin(float(diameter), float(length)).translate((x, y, z))
+        self._store(name, wp)
+        return f"created dowel pin '{name}' d={diameter} L={length}"
+
+    def hinge(self, name: str, length: float, leaf_width: float, pin_d: float,
+              knuckles: int = 3, leaf_thickness: float = 2.0,
+              x: float = 0, y: float = 0, z: float = 0) -> str:
+        wp = hinge(float(length), float(leaf_width), float(pin_d),
+                   int(knuckles), float(leaf_thickness)).translate((x, y, z))
+        self._store(name, wp)
+        return (f"created hinge '{name}' L={length} leaf={leaf_width} "
+                f"pin={pin_d} knuckles={knuckles}")
+
+    def pulley(self, name: str, od: float, width: float, bore: float = 0,
+               belt_width: float = 6.0,
+               x: float = 0, y: float = 0, z: float = 0) -> str:
+        wp = v_pulley(float(od), float(width), float(bore),
+                      float(belt_width)).translate((x, y, z))
+        self._store(name, wp)
+        return f"created V-pulley '{name}' OD={od} W={width} bore={bore}"
 
 
 def dispatch_library(eng: LibraryEngine, op: str, args: dict) -> str:
