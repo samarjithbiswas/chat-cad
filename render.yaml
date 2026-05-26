@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: chat-cad
+    env: docker
+    plan: free                # change to "starter" ($7/mo) or "standard" ($25/mo) if free OOMs
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /
+    autoDeploy: true
+    envVars:
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      # Visitors paste their own ANTHROPIC_API_KEY in the UI; no shared key is set here.

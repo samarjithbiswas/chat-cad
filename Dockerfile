@@ -12,8 +12,9 @@ RUN pip install --no-cache-dir flask==3.* "anthropic>=0.40" "numpy>=1.24,<2" "sc
 # Copy app sources
 COPY . /app/
 
-# HF Spaces convention
+# Bind to 0.0.0.0 on whatever port the host assigns ($PORT). Render sets it
+# dynamically; HF Spaces expects 7860; default to 7860 if unset.
 ENV HOST=0.0.0.0 PORT=7860 PYTHONUNBUFFERED=1
 EXPOSE 7860
 
-CMD ["python", "app.py"]
+CMD ["sh", "-c", "python app.py"]
