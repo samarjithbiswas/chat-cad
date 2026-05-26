@@ -87,10 +87,21 @@ def run_ollama(model: str, history: list[dict], engine,
         }
         try:
             resp = _post("/api/chat", payload, timeout=300)
+        except urllib.error.HTTPError as e:
+            # Ollama IS reachable but returned an error — usually 404 because
+            # the model isn't pulled yet. Probe /api/tags to confirm and list
+            # what's actually available.
+            ok, msg = check_ollama()
+            if e.code == 404:
+                return (f"Ollama is running, but model '{model}' isn't pulled yet.\n"
+                        f"Open PowerShell and run:\n"
+                        f"    ollama pull {model}\n\n"
+                        f"Status: {msg}", op_log)
+            return (f"Ollama returned HTTP {e.code}: {e.reason}\n"
+                    f"Status: {msg}", op_log)
         except urllib.error.URLError as e:
             return (f"Ollama not reachable at {OLLAMA_URL}. "
-                    f"Install Ollama (https://ollama.com), then run "
-                    f"`ollama serve` and `ollama pull {model}`.\n"
+                    f"Install Ollama (https://ollama.com) and start it.\n"
                     f"Underlying error: {e}", op_log)
         except Exception as e:
             return (f"Ollama call failed: {e}", op_log)
