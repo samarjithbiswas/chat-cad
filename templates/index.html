@@ -164,6 +164,13 @@
             <option value="gemini-2.5-flash">gemini-2.5-flash</option>
             <option value="gemini-2.5-pro">gemini-2.5-pro</option>
           </optgroup>
+          <optgroup label="Local Ollama (no key, no internet, chat only)">
+            <option value="ollama:llama3.2">ollama: llama3.2</option>
+            <option value="ollama:llama3.1">ollama: llama3.1</option>
+            <option value="ollama:qwen2.5">ollama: qwen2.5</option>
+            <option value="ollama:qwen2.5-coder">ollama: qwen2.5-coder</option>
+            <option value="ollama:mistral">ollama: mistral</option>
+          </optgroup>
         </select>
       </label>
       <div style="font-size:10px;opacity:0.5;line-height:1.4;margin-top:2px">
@@ -324,15 +331,17 @@ const kstat    = document.getElementById('kstat');
 apikeyEl.value = localStorage.getItem('cc_apikey') || '';
 modelEl.value  = localStorage.getItem('cc_model')  || modelEl.value;
 function detectBackend(key) {
+  if (modelEl.value && modelEl.value.startsWith('ollama:')) return 'ollama';
   if (!key) return 'parser';
   if (key.startsWith('sk-ant-')) return 'claude';
   if (key.startsWith('AIza'))    return 'gemini';
   return 'claude'; // unknown prefix — try Anthropic
 }
 function autoPickModel(backend) {
-  // If the user just pasted a Gemini key but model is still Claude, switch it,
-  // and vice versa.
+  // If the user just pasted a key, pick a default model — but never override
+  // an Ollama selection (user explicitly chose offline).
   const cur = modelEl.value;
+  if (cur.startsWith('ollama:')) return;
   if (backend === 'gemini' && !cur.startsWith('gemini')) {
     modelEl.value = 'gemini-2.0-flash';
     localStorage.setItem('cc_model', modelEl.value);
@@ -349,7 +358,7 @@ const refreshKstat = () => {
 refreshKstat();
 apikeyEl.addEventListener('input',  () => { localStorage.setItem('cc_apikey', apikeyEl.value); refreshKstat(); });
 apikeyEl.addEventListener('change', () => { localStorage.setItem('cc_apikey', apikeyEl.value); refreshKstat(); });
-modelEl .addEventListener('change', () => { localStorage.setItem('cc_model',  modelEl.value); });
+modelEl .addEventListener('change', () => { localStorage.setItem('cc_model',  modelEl.value); refreshKstat(); });
 
 // ----- theme toggle -----
 const themeBtn = document.getElementById('themeToggle');

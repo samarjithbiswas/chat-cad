@@ -44,14 +44,19 @@ app = Flask(__name__, template_folder="templates", static_folder="static")
 engine = CadEngine(OUTPUT)
 chat_history: list[dict] = []  # Claude conversation history
 gemini_history: list[dict] = []  # Gemini conversation history (separate format)
+ollama_history: list[dict] = []  # Ollama conversation history
 _lock = threading.Lock()
 
 DEFAULT_MODEL = "claude-opus-4-7"
 DEFAULT_GEMINI_MODEL = "gemini-2.0-flash"
 
 
-def _detect_backend(api_key: str) -> str:
-    """Return 'anthropic', 'gemini', or 'none' based on key prefix."""
+def _detect_backend(api_key: str, model: str = "") -> str:
+    """Return 'anthropic', 'gemini', 'ollama', or 'none' based on the model
+    name (ollama models are prefixed 'ollama:') and the API key prefix.
+    """
+    if model and model.startswith("ollama:"):
+        return "ollama"
     if not api_key:
         return "none"
     if api_key.startswith("sk-ant-"):
@@ -119,9 +124,17 @@ def chat():
     if not message:
         return jsonify({"reply": "(empty message)", "ops": [], "parts": engine.list_parts()})
 
-    backend = _detect_backend(api_key)
+    backend = _detect_backend(api_key, model)
     with _lock:
-        if backend == "anthropic":
+        if backend == "ollama":
+            try:
+                from llm_ollama import run_ollama
+                ollama_model = model[len("ollama:"):]
+                reply, ops = run_ollama(ollama_model, ollama_history, engine, message)
+            except Exception as e:
+                reply = f"Ollama call failed: {e}\nFalling back to parser.\n\n" + run_parser(engine, message)
+                ops = []
+        elif backend == "anthropic":
             try:
                 from anthropic import Anthropic
                 client = Anthropic(api_key=api_key)
@@ -301,8 +314,17 @@ def reset():
         engine.clear()
         chat_history.clear()
         gemini_history.clear()
+        ollama_history.clear()
         _refresh_stl()
     return jsonify({"ok": True})
+
+
+@app.route("/ollama/status")
+def ollama_status():
+    """Quick health check used by the UI to show Ollama availability."""
+    from llm_ollama import check_ollama
+    ok, msg = check_ollama()
+    return jsonify({"ok": ok, "message": msg})
 
 
 @app.route("/export/<fmt>")
