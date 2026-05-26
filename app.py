@@ -124,8 +124,15 @@ def chat():
     if not message:
         return jsonify({"reply": "(empty message)", "ops": [], "parts": engine.list_parts()})
 
-    backend = _detect_backend(api_key, model)
+    force_parser = bool(data.get("force_parser"))
+    backend = "parser" if force_parser else _detect_backend(api_key, model)
     with _lock:
+        if backend == "parser":
+            reply = run_parser(engine, message)
+            ops = []
+            _refresh_stl()
+            return jsonify({"reply": reply, "ops": ops,
+                            "parts": engine.list_parts(), "backend": "parser"})
         if backend == "ollama":
             try:
                 from llm_ollama import run_ollama
