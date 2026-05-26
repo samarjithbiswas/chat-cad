@@ -322,15 +322,25 @@
         <button id="importStepBtn">Import STEP</button>
         <input id="importStepFile" type="file" accept=".step,.stp" style="display:none" /></span>
 
-        <span data-rib="view"><button id="fitBtn">Fit view</button>
+        <span data-rib="view"><button id="fitBtn" title="Auto-fit camera to all parts">Fit</button>
+        <button id="zoomInBtn" title="Zoom in (= mouse wheel forward)">Zoom +</button>
+        <button id="zoomOutBtn" title="Zoom out (= mouse wheel backward)">Zoom −</button>
+        <button id="resetViewBtn" title="Reset to default isometric framing">Reset view</button>
+        <span style="width:1px;height:18px;background:var(--border);margin:0 4px"></span>
+        <button id="viewIso"   title="Isometric view">Iso</button>
+        <button id="viewFront" title="Front (XZ)">Front</button>
+        <button id="viewTop"   title="Top (XY)">Top</button>
+        <button id="viewRight" title="Right (YZ)">Right</button>
+        <span style="width:1px;height:18px;background:var(--border);margin:0 4px"></span>
         <label><input type="checkbox" id="secEnable" /> Section</label>
         <select id="secAxis">
           <option value="X">X</option>
           <option value="Y">Y</option>
           <option value="Z" selected>Z</option>
         </select>
-        <input type="range" id="secSlider" min="-200" max="200" step="0.5" value="0" style="width:140px" />
+        <input type="range" id="secSlider" min="-200" max="200" step="0.5" value="0" style="width:120px" />
         <span id="secVal" style="font-size:11px;opacity:0.7;min-width:60px">0.00 mm</span>
+        <span style="width:1px;height:18px;background:var(--border);margin:0 4px"></span>
         <button id="explodeBtn" title="Spread parts outward for an exploded view">Explode</button>
         <button id="unexplodeBtn" title="Return parts to their real positions">Collapse</button></span>
 
@@ -1154,6 +1164,39 @@ document.querySelectorAll('.ribtab').forEach(t => {
       .forEach(g => g.classList.add('active'));
   });
 });
+
+// ----- zoom + view-direction buttons -----
+function zoomBy(factor) {
+  const dir = camera.position.clone().sub(controls.target);
+  dir.multiplyScalar(factor);
+  camera.position.copy(controls.target).add(dir);
+  controls.update();
+}
+document.getElementById('zoomInBtn').addEventListener('click',
+  () => zoomBy(0.8));
+document.getElementById('zoomOutBtn').addEventListener('click',
+  () => zoomBy(1.25));
+document.getElementById('resetViewBtn').addEventListener('click', () => {
+  // call the existing frameScene() to auto-fit + iso framing
+  if (typeof frameScene === 'function') frameScene();
+});
+
+function snapView(dir, up) {
+  const t = controls.target.clone();
+  const d = camera.position.distanceTo(t);
+  camera.position.copy(t).add(new THREE.Vector3(...dir).multiplyScalar(d));
+  camera.up.set(...up);
+  camera.lookAt(t);
+  controls.update();
+}
+document.getElementById('viewIso').addEventListener('click',
+  () => snapView([0.7, -0.7, 0.5], [0, 0, 1]));
+document.getElementById('viewFront').addEventListener('click',
+  () => snapView([0, -1, 0], [0, 0, 1]));
+document.getElementById('viewTop').addEventListener('click',
+  () => snapView([0, 0, 1], [0, 1, 0]));
+document.getElementById('viewRight').addEventListener('click',
+  () => snapView([1, 0, 0], [0, 0, 1]));
 
 // ----- exploded view -----
 // Records each mesh's original position when "Explode" is clicked, moves each
