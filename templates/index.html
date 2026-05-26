@@ -310,6 +310,7 @@
         <div class="ribtab active" data-ribtab="file">File</div>
         <div class="ribtab"        data-ribtab="view">View</div>
         <div class="ribtab"        data-ribtab="edit">Edit</div>
+        <div class="ribtab"        data-ribtab="render">Render</div>
         <div class="ribtab"        data-ribtab="sim">Simulate</div>
       </div>
       <div id="toolbar">
@@ -341,6 +342,56 @@
 
         <span data-rib="sim"><button id="feaRun"    title="Run FEA on selected part">Run FEA (stress)</button>
         <button id="thermalRun" title="Run heat-transfer / thermal analysis">Run thermal</button></span>
+
+        <span data-rib="render"><label style="font-size:11px">Material
+        <select id="matPreset" style="margin-left:4px">
+          <optgroup label="Metallic">
+            <option value="gold">Polished gold</option>
+            <option value="steel">Polished steel</option>
+            <option value="chrome">Chrome</option>
+            <option value="aluminum-brushed">Brushed aluminum</option>
+            <option value="copper">Copper</option>
+            <option value="brass">Brass</option>
+            <option value="titanium">Titanium</option>
+            <option value="iron-rough">Cast iron (rough)</option>
+          </optgroup>
+          <optgroup label="Non-metallic">
+            <option value="plastic-glossy">Glossy plastic</option>
+            <option value="plastic-matte">Matte plastic</option>
+            <option value="rubber">Rubber (matte)</option>
+            <option value="ceramic">Ceramic (glossy)</option>
+            <option value="wood">Wood</option>
+            <option value="carbon-fiber">Carbon fiber</option>
+          </optgroup>
+          <optgroup label="Transparent">
+            <option value="glass">Glass</option>
+            <option value="frosted-glass">Frosted glass</option>
+          </optgroup>
+          <optgroup label="Special">
+            <option value="default">CAD default (per-part colour)</option>
+            <option value="x-ray">X-ray</option>
+            <option value="wireframe">Wireframe only</option>
+          </optgroup>
+        </select>
+        </label>
+        <button id="matApplySel" title="Apply material to selected part only">Apply to sel.</button>
+        <button id="matApplyAll" title="Apply material to every part in the scene">Apply to all</button>
+        <span style="width:1px;height:18px;background:var(--border);margin:0 4px"></span>
+        <label style="font-size:11px">Environment
+        <select id="envPreset" style="margin-left:4px">
+          <option value="studio">Studio (default)</option>
+          <option value="sky">Outdoor sky</option>
+          <option value="warm">Warm interior</option>
+          <option value="dark">Dark void</option>
+        </select>
+        </label>
+        <span style="width:1px;height:18px;background:var(--border);margin:0 4px"></span>
+        <label style="font-size:11px">
+          <input type="checkbox" id="edgesToggle" checked /> edges
+        </label>
+        <label style="font-size:11px">
+          <input type="checkbox" id="shadowsToggle" checked /> shadows
+        </label></span>
         <!-- spacer + tip moved to bottom by inline style below -->
         <span style="flex:1"></span>
         <span style="font-size:11px;opacity:0.55">drag = rotate · right-drag = pan · wheel = zoom</span>
@@ -982,6 +1033,115 @@ document.getElementById('gizmoRot').addEventListener('click', () => {
 });
 document.getElementById('gizmoOff').addEventListener('click', () => {
   gizmo.detach(); scene.remove(gizmo);
+});
+
+// ----- render presets (Blender-style material library) -----
+// Each preset returns a fresh THREE.MeshPhysicalMaterial configured for that look.
+// Colors keep the per-part palette unless the preset overrides (gold, copper, etc.).
+const MATERIAL_PRESETS = {
+  'gold':            { color: 0xd4af37, metalness: 1.0, roughness: 0.10, clearcoat: 0,    envMapIntensity: 1.4 },
+  'steel':           { color: 0xc0c4cc, metalness: 1.0, roughness: 0.18, clearcoat: 0,    envMapIntensity: 1.2 },
+  'chrome':          { color: 0xe6eaef, metalness: 1.0, roughness: 0.02, clearcoat: 0,    envMapIntensity: 1.6 },
+  'aluminum-brushed':{ color: 0xc8ccd0, metalness: 0.92, roughness: 0.55, clearcoat: 0,   envMapIntensity: 0.9 },
+  'copper':          { color: 0xb87333, metalness: 1.0, roughness: 0.28, clearcoat: 0,    envMapIntensity: 1.2 },
+  'brass':           { color: 0xc5a050, metalness: 1.0, roughness: 0.35, clearcoat: 0,    envMapIntensity: 1.1 },
+  'titanium':        { color: 0x9a9aa0, metalness: 1.0, roughness: 0.32, clearcoat: 0,    envMapIntensity: 1.1 },
+  'iron-rough':      { color: 0x6a6a6a, metalness: 0.85, roughness: 0.78, clearcoat: 0,   envMapIntensity: 0.6 },
+  'plastic-glossy':  {                  metalness: 0.0, roughness: 0.25, clearcoat: 1.0, clearcoatRoughness: 0.1, envMapIntensity: 1.0 },
+  'plastic-matte':   {                  metalness: 0.0, roughness: 0.85, clearcoat: 0,    envMapIntensity: 0.4 },
+  'rubber':          { color: 0x1c1c1c, metalness: 0.0, roughness: 0.95, clearcoat: 0,    envMapIntensity: 0.3 },
+  'ceramic':         { color: 0xeaeaee, metalness: 0.0, roughness: 0.18, clearcoat: 1.0, clearcoatRoughness: 0.05, envMapIntensity: 1.2 },
+  'wood':            { color: 0xa07a4e, metalness: 0.0, roughness: 0.7,  clearcoat: 0.2,  envMapIntensity: 0.5 },
+  'carbon-fiber':    { color: 0x14141a, metalness: 0.7, roughness: 0.4,  clearcoat: 0.8, clearcoatRoughness: 0.2, envMapIntensity: 1.0 },
+  'glass':           { color: 0xffffff, metalness: 0.0, roughness: 0.05, transmission: 1.0, ior: 1.5, thickness: 2.0, transparent: true, envMapIntensity: 1.0 },
+  'frosted-glass':   { color: 0xffffff, metalness: 0.0, roughness: 0.5,  transmission: 0.95, ior: 1.5, thickness: 2.0, transparent: true, envMapIntensity: 1.0 },
+  'default':         { metalness: 0.25, roughness: 0.45, clearcoat: 0.15, clearcoatRoughness: 0.6, envMapIntensity: 0.8 },
+  'x-ray':           { color: 0x6fb3ff, metalness: 0.0, roughness: 0.4,  transparent: true, opacity: 0.35, depthWrite: false, envMapIntensity: 0.6 },
+  'wireframe':       { wireframe: true, color: 0x6aa7ff, metalness: 0, roughness: 1 },
+};
+
+function makePresetMaterial(presetName, fallbackColor) {
+  const cfg = MATERIAL_PRESETS[presetName] || MATERIAL_PRESETS['default'];
+  const color = cfg.color !== undefined ? cfg.color : (fallbackColor || 0x6aa7ff);
+  // copy cfg without 'color' for spread (we set color above)
+  const props = { color, ...cfg };
+  return new THREE.MeshPhysicalMaterial(props);
+}
+
+function applyPresetToMesh(mesh, presetName) {
+  if (!mesh || !mesh.isMesh) return;
+  const oldColor = mesh.material.color?.getHex?.() ?? 0x6aa7ff;
+  const newMat = makePresetMaterial(presetName, oldColor);
+  // preserve emissive selection highlight if active
+  if (mesh.material.emissive && mesh.material.emissiveIntensity > 0) {
+    newMat.emissive = mesh.material.emissive.clone();
+    newMat.emissiveIntensity = mesh.material.emissiveIntensity;
+  }
+  mesh.material.dispose();
+  mesh.material = newMat;
+}
+
+document.getElementById('matApplySel').addEventListener('click', () => {
+  if (!_selected) { addMsg('bot', 'error', 'Click a part first to select it.'); return; }
+  applyPresetToMesh(_selected, document.getElementById('matPreset').value);
+});
+document.getElementById('matApplyAll').addEventListener('click', () => {
+  const preset = document.getElementById('matPreset').value;
+  partGroup.children.filter(o => o.isMesh).forEach(m => applyPresetToMesh(m, preset));
+});
+
+// ----- environment presets -----
+function buildEnvTexture(presetName) {
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  const envScene = new THREE.Scene();
+  let topColor, botColor, mid = null;
+  if (presetName === 'sky') {
+    topColor = 0x6db0ff; botColor = 0xd9ad7b;  // sky → horizon warm
+  } else if (presetName === 'warm') {
+    topColor = 0xfff0d8; botColor = 0x3a2c20;
+  } else if (presetName === 'dark') {
+    topColor = 0x10121a; botColor = 0x070810;
+  } else {
+    topColor = 0xeef3fa; botColor = 0x3a4250;  // studio (default)
+  }
+  const envMat = new THREE.ShaderMaterial({
+    uniforms: { topColor: { value: new THREE.Color(topColor) },
+                botColor: { value: new THREE.Color(botColor) } },
+    vertexShader: 'varying vec3 vN; void main(){vN=normalize(position);' +
+                  'gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}',
+    fragmentShader: 'uniform vec3 topColor,botColor; varying vec3 vN;' +
+                    'void main(){float t=vN.y*0.5+0.5;' +
+                    'gl_FragColor=vec4(mix(botColor,topColor,t),1.);}',
+    side: THREE.BackSide,
+  });
+  envScene.add(new THREE.Mesh(new THREE.SphereGeometry(50, 32, 16), envMat));
+  return pmrem.fromScene(envScene, 0.04).texture;
+}
+document.getElementById('envPreset').addEventListener('change', e => {
+  scene.environment = buildEnvTexture(e.target.value);
+  // for the dark env, also dim the scene background slightly to match
+  if (e.target.value === 'dark') {
+    scene.background = new THREE.Color(0x0a0c12);
+  } else if (e.target.value === 'sky') {
+    scene.background = new THREE.Color(0xbdd6f0);
+  } else {
+    scene.background = new THREE.Color(
+      document.documentElement.classList.contains('light') ? 0xf0f3f7 : 0x171b22);
+  }
+});
+
+// ----- edges + shadows toggles -----
+document.getElementById('edgesToggle').addEventListener('change', e => {
+  partGroup.children.forEach(o => {
+    if (o.name && o.name.endsWith('__edges')) o.visible = e.target.checked;
+  });
+});
+document.getElementById('shadowsToggle').addEventListener('change', e => {
+  renderer.shadowMap.enabled = e.target.checked;
+  partGroup.children.forEach(o => {
+    if (o.isMesh) { o.castShadow = e.target.checked; o.receiveShadow = e.target.checked; }
+  });
+  ground.visible = e.target.checked;
 });
 
 // ----- ribbon tabs -----
