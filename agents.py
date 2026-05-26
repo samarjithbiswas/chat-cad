@@ -176,6 +176,140 @@ verdict meanings:
 - "revise"   : the last step is wrong or incomplete; redo it per specific_changes."""
 
 
+# ---------------- DFM critic ---------------- #
+DFM_SYSTEM = """You are a senior design-for-manufacturing engineer reviewing
+parts in progress. You will be given numeric geometric measurements (bbox,
+volume, surface area, estimated wall thickness, aspect ratio) of the parts
+currently in the scene.
+
+Decide whether the current scene has serious manufacturing problems for
+common processes (CNC, 3D print FDM, sheet metal, casting). Be specific and
+quantitative. Do NOT speculate beyond what the numbers tell you.
+
+Respond as STRICT JSON only:
+{
+  "verdict": "pass" | "warn" | "fail",
+  "feedback": "one or two sentences",
+  "issues": ["concrete issue 1 with the part name and number", "..."]
+}
+
+pass : looks manufacturable; nothing to fix.
+warn : minor concerns; design can ship but flag these.
+fail : a part as designed is unmanufacturable (wall too thin, sliver geometry, etc.)."""
+
+
+def _compute_dfm_findings(engine, names: list[str]) -> list[dict]:
+    """Per-part geometric measurements relevant to manufacturability."""
+    findings: list[dict] = []
+    for name in names:
+        if name not in engine.parts:
+            continue
+        try:
+            shape = engine.parts[name].val()
+            vol = float(shape.Volume())
+            try:
+                surf = float(shape.Area())
+            except Exception:
+                surf = 0.0
+            bb = shape.BoundingBox()
+            dims = sorted([bb.xlen, bb.ylen, bb.zlen])
+            min_dim = dims[0]; max_dim = dims[2]
+            aspect = (max_dim / min_dim) if min_dim > 1e-6 else float("inf")
+            wall_est = (2.0 * vol / surf) if surf > 1e-6 else 0.0
+            warnings = []
+            if wall_est < 1.5:
+                warnings.append(f"est. wall {wall_est:.2f} mm < 1.5 mm — fragile for most processes")
+            if min_dim < 0.5:
+                warnings.append(f"smallest bbox dim {min_dim:.2f} mm — likely sliver geometry")
+            if aspect > 30:
+                warnings.append(f"aspect ratio {aspect:.1f}:1 — long and thin, may warp on FDM")
+            findings.append({
+                "part": name,
+                "volume_mm3": round(vol, 2),
+                "surface_mm2": round(surf, 2),
+                "bbox_mm": [round(bb.xlen, 2), round(bb.ylen, 2), round(bb.zlen, 2)],
+                "min_dim_mm": round(min_dim, 2),
+                "max_dim_mm": round(max_dim, 2),
+                "aspect_ratio": round(aspect, 1),
+                "est_wall_thickness_mm": round(wall_est, 2),
+                "warnings": warnings,
+            })
+        except Exception as e:
+            findings.append({"part": name, "error": str(e)})
+    return findings
+
+
+def critique_dfm(client, model: str, brief: str, engine) -> dict:
+    """Geometric findings + LLM interpretation = DFM verdict."""
+    names = list(engine.parts.keys())
+    if not names:
+        return {"verdict": "pass", "feedback": "(empty scene)", "issues": []}
+    findings = _compute_dfm_findings(engine, names)
+    user_msg = (f"BRIEF:\n{brief}\n\nGEOMETRIC FINDINGS:\n"
+                f"{json.dumps(findings, indent=2)}\n\n"
+                "Assess manufacturability.")
+    resp = client.messages.create(
+        model=model, max_tokens=600, system=DFM_SYSTEM,
+        messages=[{"role": "user", "content": user_msg}])
+    text = "".join(b.text for b in resp.content if getattr(b, "type", None) == "text")
+    text = text.strip().lstrip("`").rstrip("`")
+    if text.startswith("json"):
+        text = text[4:].lstrip()
+    try:
+        out = json.loads(text)
+        out["findings"] = findings
+        return out
+    except Exception:
+        return {"verdict": "warn", "feedback": text[:200],
+                "issues": [], "findings": findings}
+
+
+# ---------------- Standards critic (RAG-driven) ---------------- #
+STANDARDS_SYSTEM = """You are an organizational-standards critic. You will be
+shown (1) the brief, (2) excerpts from the user's knowledge base describing
+their personal/team standards (e.g. 'always use M4 bolts', 'wall thickness
+>=3 mm for FDM'), and (3) what's currently in the scene.
+
+Decide whether the design respects the user's standards. Ignore items in the
+notes that have nothing to do with this brief. Be specific.
+
+Respond as STRICT JSON only:
+{
+  "verdict": "pass" | "warn" | "fail",
+  "feedback": "one or two sentences",
+  "issues": ["concrete violation 1, citing the relevant note", "..."]
+}"""
+
+
+def critique_standards(client, model: str, brief: str, engine) -> dict:
+    """RAG over knowledge base + LLM compliance judgment."""
+    if not hasattr(engine, "knowledge"):
+        return {"verdict": "pass", "feedback": "(no knowledge base)",
+                "issues": []}
+    notes = engine.knowledge.search(brief, k=10) if engine.knowledge.notes else []
+    if not notes:
+        return {"verdict": "pass",
+                "feedback": "(no relevant notes in knowledge base)",
+                "issues": []}
+    notes_text = "\n".join(f"- {n['text']}" for n in notes)
+    scene = engine.list_parts()
+    user_msg = (f"BRIEF:\n{brief}\n\n"
+                f"USER'S NOTES / STANDARDS:\n{notes_text}\n\n"
+                f"CURRENT SCENE:\n{scene}\n\n"
+                "Assess standards compliance.")
+    resp = client.messages.create(
+        model=model, max_tokens=600, system=STANDARDS_SYSTEM,
+        messages=[{"role": "user", "content": user_msg}])
+    text = "".join(b.text for b in resp.content if getattr(b, "type", None) == "text")
+    text = text.strip().lstrip("`").rstrip("`")
+    if text.startswith("json"):
+        text = text[4:].lstrip()
+    try:
+        return json.loads(text)
+    except Exception:
+        return {"verdict": "warn", "feedback": text[:200], "issues": []}
+
+
 def critique_visual(client, model: str, brief: str, milestone: dict,
                     modeler_summary: str, image_path: str) -> dict:
     img_b64 = _png_to_b64(image_path)
@@ -307,7 +441,8 @@ def design_loop(client, model: str, engine: CadEngine, brief: str,
             verdict = critique.get("verdict", "continue")
             if verdict == "done":
                 log.append(AgentEvent("system", "log",
-                                      "critic marked design complete"))
+                                      "visual critic marked design complete"))
+                _run_final_critics(client, model, engine, brief, log)
                 _autosave_design(engine, brief, log)
                 return [e.to_json() for e in log]
             if verdict == "continue":
@@ -316,8 +451,34 @@ def design_loop(client, model: str, engine: CadEngine, brief: str,
 
     log.append(AgentEvent("system", "log",
                           "all milestones complete (or revise cap hit)"))
+    _run_final_critics(client, model, engine, brief, log)
     _autosave_design(engine, brief, log)
     return [e.to_json() for e in log]
+
+
+def _run_final_critics(client, model: str, engine: CadEngine, brief: str,
+                       log: list[AgentEvent]) -> None:
+    """Run DFM + standards critics on the finished scene and append findings
+    to the log. These are advisory — they don't loop back to the modeler in v1.
+    """
+    # DFM
+    try:
+        dfm = critique_dfm(client, model, brief, engine)
+        v = dfm.get("verdict", "?")
+        fb = dfm.get("feedback", "")
+        log.append(AgentEvent("critic", "verdict",
+                              f"DFM {v}: {fb}", data=dfm))
+    except Exception as e:
+        log.append(AgentEvent("critic", "log", f"DFM critic failed: {e}"))
+    # Standards (only if we have a non-empty knowledge base)
+    try:
+        std = critique_standards(client, model, brief, engine)
+        v = std.get("verdict", "?")
+        fb = std.get("feedback", "")
+        log.append(AgentEvent("critic", "verdict",
+                              f"Standards {v}: {fb}", data=std))
+    except Exception as e:
+        log.append(AgentEvent("critic", "log", f"Standards critic failed: {e}"))
 
 
 def _autosave_design(engine: CadEngine, brief: str,
