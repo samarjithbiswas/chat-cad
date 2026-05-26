@@ -554,6 +554,68 @@ TOOLS = [
                        "bore": {"type": "number"}, "belt_width": {"type": "number"},
                        "x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}},
         "required": ["name", "od", "width"]}},
+    # ---------------- aerospace mockups ---------------- #
+    {"name": "lib_turbine",
+     "description": "Turbine wheel: central disc + N twisted airfoil blades around the rim. Visual mockup only.",
+     "input_schema": {"type": "object",
+        "properties": {"name": {"type": "string"}, "blade_count": {"type": "integer"},
+                       "od": {"type": "number"}, "hub_d": {"type": "number"},
+                       "hub_thickness": {"type": "number"},
+                       "blade_chord": {"type": "number"}, "blade_twist_deg": {"type": "number"},
+                       "x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}},
+        "required": ["name", "blade_count", "od", "hub_d", "hub_thickness"]}},
+    {"name": "lib_propeller",
+     "description": "Aircraft propeller: hub + N twisted blades with airfoil sections.",
+     "input_schema": {"type": "object",
+        "properties": {"name": {"type": "string"}, "blade_count": {"type": "integer"},
+                       "diameter": {"type": "number"}, "hub_d": {"type": "number"},
+                       "root_chord": {"type": "number"}, "tip_chord": {"type": "number"},
+                       "twist_deg": {"type": "number"},
+                       "x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}},
+        "required": ["name", "blade_count", "diameter", "hub_d"]}},
+    {"name": "lib_compressor",
+     "description": "Compressor stage: thin annular ring with N twisted blades.",
+     "input_schema": {"type": "object",
+        "properties": {"name": {"type": "string"}, "blade_count": {"type": "integer"},
+                       "hub_d": {"type": "number"}, "od": {"type": "number"},
+                       "blade_height": {"type": "number"},
+                       "blade_chord": {"type": "number"}, "twist_deg": {"type": "number"},
+                       "x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}},
+        "required": ["name", "blade_count", "hub_d", "od", "blade_height"]}},
+    {"name": "lib_nozzle",
+     "description": "Converging-diverging bell nozzle (rocket / jet exhaust). Shelled solid of revolution.",
+     "input_schema": {"type": "object",
+        "properties": {"name": {"type": "string"},
+                       "throat_d": {"type": "number"}, "exit_d": {"type": "number"},
+                       "inlet_d": {"type": "number"}, "length": {"type": "number"},
+                       "x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}},
+        "required": ["name", "throat_d", "exit_d", "inlet_d", "length"]}},
+    {"name": "lib_combustor",
+     "description": "Combustor liner: cylindrical can with N rings of cooling holes.",
+     "input_schema": {"type": "object",
+        "properties": {"name": {"type": "string"},
+                       "diameter": {"type": "number"}, "length": {"type": "number"},
+                       "wall_thickness": {"type": "number"},
+                       "hole_diameter": {"type": "number"},
+                       "hole_rings": {"type": "integer"}, "holes_per_ring": {"type": "integer"},
+                       "x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}},
+        "required": ["name", "diameter", "length"]}},
+    {"name": "lib_honeycomb",
+     "description": "Honeycomb structural panel: flat plate with hexagonal cells cut out.",
+     "input_schema": {"type": "object",
+        "properties": {"name": {"type": "string"},
+                       "length": {"type": "number"}, "width": {"type": "number"},
+                       "thickness": {"type": "number"},
+                       "cell_size": {"type": "number"}, "wall_thickness": {"type": "number"},
+                       "x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}},
+        "required": ["name", "length", "width", "thickness"]}},
+    {"name": "lib_naca",
+     "description": "Extruded NACA 4-digit airfoil wing section (e.g. code '2412' for NACA 2412).",
+     "input_schema": {"type": "object",
+        "properties": {"name": {"type": "string"}, "code": {"type": "string"},
+                       "chord": {"type": "number"}, "span": {"type": "number"},
+                       "x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}},
+        "required": ["name", "code", "chord", "span"]}},
     # ---------------- selective fillet / chamfer ---------------- #
     {"name": "fillet_edges",
      "description": "Fillet edges matching a CadQuery selector ('all','+Z','-Z','|Z','>Z',etc).",
@@ -785,6 +847,15 @@ _HELP = """commands (fallback parser, used when no Claude API key is set):
   dowel   <name> <d> <L> [x y z]
   hinge   <name> <L> <leaf_w> <pin_d> [knuckles] [leaf_t] [x y z]
   pulley  <name> <od> <width> [bore] [belt_w] [x y z]
+
+ Aerospace mockups (visual; not engineering-grade):
+  turbine    <name> <blades> <od> <hub_d> <hub_t> [chord] [twist] [x y z]
+  propeller  <name> <blades> <D> <hub_d> [root_c] [tip_c] [twist] [x y z]
+  compressor <name> <blades> <hub_d> <od> <height> [chord] [twist] [x y z]
+  nozzle     <name> <throat_d> <exit_d> <inlet_d> <length> [x y z]
+  combustor  <name> <D> <L> [wall] [hole_d] [rings] [per_ring] [x y z]
+  honeycomb  <name> <L> <W> <T> [cell] [wall] [x y z]
+  naca       <name> <NACA4-code> <chord> <span> [x y z]
 
  Selective fillet / chamfer / holes / sketch-driven features:
   filletx  <name> <radius> [selector]     selector e.g. >Z, |Z, +X, all
@@ -1049,6 +1120,64 @@ def run_parser(engine: CadEngine, line: str) -> str:
             xyz = [_f(v) for v in rest[2:]] + [0, 0, 0]
             return engine.library.pulley(name, _f(od), _f(w), bore, belt_w,
                                          xyz[0], xyz[1], xyz[2])
+        if cmd == "turbine":
+            # turbine <name> <blades> <od> <hub_d> <hub_t> [chord] [twist] [x y z]
+            name, blades, od, hub_d, hub_t, *rest = a
+            chord = _f(rest[0]) if len(rest) > 0 else 0
+            twist = _f(rest[1]) if len(rest) > 1 else 18
+            xyz = [_f(v) for v in rest[2:]] + [0, 0, 0]
+            return engine.library.turbine(name, int(blades), _f(od), _f(hub_d),
+                                          _f(hub_t), chord, twist,
+                                          xyz[0], xyz[1], xyz[2])
+        if cmd == "propeller":
+            # propeller <name> <blades> <D> <hub_d> [root_chord] [tip_chord] [twist] [x y z]
+            name, blades, D, hub_d, *rest = a
+            rc = _f(rest[0]) if len(rest) > 0 else 0
+            tc = _f(rest[1]) if len(rest) > 1 else 0
+            tw = _f(rest[2]) if len(rest) > 2 else 28
+            xyz = [_f(v) for v in rest[3:]] + [0, 0, 0]
+            return engine.library.propeller(name, int(blades), _f(D), _f(hub_d),
+                                            rc, tc, tw, xyz[0], xyz[1], xyz[2])
+        if cmd == "compressor":
+            # compressor <name> <blades> <hub_d> <od> <height> [chord] [twist] [x y z]
+            name, blades, hub_d, od, height, *rest = a
+            chord = _f(rest[0]) if len(rest) > 0 else 0
+            twist = _f(rest[1]) if len(rest) > 1 else 12
+            xyz = [_f(v) for v in rest[2:]] + [0, 0, 0]
+            return engine.library.compressor(name, int(blades), _f(hub_d),
+                                             _f(od), _f(height), chord, twist,
+                                             xyz[0], xyz[1], xyz[2])
+        if cmd == "nozzle":
+            # nozzle <name> <throat_d> <exit_d> <inlet_d> <length> [x y z]
+            name, td, ed, idia, L, *rest = a
+            xyz = [_f(v) for v in rest] + [0, 0, 0]
+            return engine.library.nozzle(name, _f(td), _f(ed), _f(idia), _f(L),
+                                         xyz[0], xyz[1], xyz[2])
+        if cmd == "combustor":
+            # combustor <name> <D> <L> [wall] [hole_d] [rings] [per_ring] [x y z]
+            name, D, L, *rest = a
+            wall = _f(rest[0]) if len(rest) > 0 else 2
+            hd   = _f(rest[1]) if len(rest) > 1 else 4
+            rings = int(rest[2]) if len(rest) > 2 else 6
+            per   = int(rest[3]) if len(rest) > 3 else 24
+            xyz = [_f(v) for v in rest[4:]] + [0, 0, 0]
+            return engine.library.combustor(name, _f(D), _f(L), wall, hd,
+                                            rings, per, xyz[0], xyz[1], xyz[2])
+        if cmd == "honeycomb":
+            # honeycomb <name> <L> <W> <T> [cell] [wall] [x y z]
+            name, L, W, T, *rest = a
+            cell = _f(rest[0]) if len(rest) > 0 else 6
+            wall = _f(rest[1]) if len(rest) > 1 else 0.6
+            xyz = [_f(v) for v in rest[2:]] + [0, 0, 0]
+            return engine.library.honeycomb(name, _f(L), _f(W), _f(T),
+                                            cell, wall,
+                                            xyz[0], xyz[1], xyz[2])
+        if cmd == "naca":
+            # naca <name> <code> <chord> <span> [x y z]
+            name, code, chord, span, *rest = a
+            xyz = [_f(v) for v in rest] + [0, 0, 0]
+            return engine.library.naca(name, code, _f(chord), _f(span),
+                                       xyz[0], xyz[1], xyz[2])
         if cmd in ("fillete", "filletx"):
             # selective fillet:  filletx <name> <radius> [selector]
             name, r, *rest = a

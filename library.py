@@ -232,6 +232,262 @@ def hinge(length: float, leaf_width: float, pin_d: float,
     return body
 
 
+# ===================================================================== #
+# AEROSPACE MOCKUP HELPERS                                                #
+#                                                                         #
+# These produce visually convincing aero parts in seconds. They are NOT   #
+# engineering geometry: no NURBS surfaces, no aerodynamic optimisation,   #
+# no certified profiles. Use for portfolios / concept visualisations.    #
+# ===================================================================== #
+
+def naca4_profile(code: str, chord: float, n_pts: int = 50) -> list[tuple[float, float]]:
+    """Return ordered (x,y) points around a NACA 4-digit airfoil at given chord.
+    Standard analytical profile (Jacobs 1933). Returns ~2*n_pts points starting
+    at trailing edge, going over the top, around the leading edge, back along
+    the bottom.
+    """
+    s = code.strip()
+    if len(s) != 4 or not s.isdigit():
+        raise ValueError(f"NACA code must be 4 digits, got '{code}'")
+    m = int(s[0]) / 100.0          # max camber as % chord
+    p = int(s[1]) / 10.0           # camber position as fraction of chord
+    t = int(s[2:]) / 100.0         # thickness as % chord
+    # cosine-spaced beta for better LE/TE resolution
+    betas = [math.pi * i / (n_pts - 1) for i in range(n_pts)]
+    xs = [(1 - math.cos(b)) / 2 for b in betas]
+    upper, lower = [], []
+    for x in xs:
+        # thickness distribution (4 percent series, blunt TE)
+        yt = 5 * t * (0.2969 * math.sqrt(x) - 0.1260 * x - 0.3516 * x**2
+                      + 0.2843 * x**3 - 0.1015 * x**4)
+        # camber line + slope
+        if m == 0 or p == 0:
+            yc, dyc = 0.0, 0.0
+        elif x < p:
+            yc = m / p**2 * (2 * p * x - x**2)
+            dyc = 2 * m / p**2 * (p - x)
+        else:
+            yc = m / (1 - p)**2 * ((1 - 2 * p) + 2 * p * x - x**2)
+            dyc = 2 * m / (1 - p)**2 * (p - x)
+        theta = math.atan(dyc)
+        xu = x - yt * math.sin(theta); yu = yc + yt * math.cos(theta)
+        xl = x + yt * math.sin(theta); yl = yc - yt * math.cos(theta)
+        upper.append((xu * chord, yu * chord))
+        lower.append((xl * chord, yl * chord))
+    # order: TE -> upper -> LE -> lower -> back to TE
+    pts = list(reversed(upper)) + lower[1:]
+    return pts
+
+
+def naca_airfoil(code: str, chord: float, span: float) -> cq.Workplane:
+    """Extruded NACA-4 wing section."""
+    pts = naca4_profile(code, float(chord), n_pts=40)
+    sk = cq.Workplane("XY").polyline(pts).close()
+    return sk.extrude(float(span))
+
+
+def _blade_profile_pts(chord: float, thickness_pct: float = 8.0,
+                       camber_pct: float = 4.0) -> list[tuple[float, float]]:
+    """Raw (x,y) points for an airfoil-like profile centred at origin."""
+    code = f"{int(camber_pct):d}4{int(thickness_pct):02d}"
+    pts = naca4_profile(code, chord, n_pts=24)
+    cx = chord / 2
+    return [(x - cx, y) for x, y in pts]
+
+
+def _twisted_loft(root_pts: list[tuple[float, float]],
+                  tip_pts: list[tuple[float, float]],
+                  height: float, twist_deg: float) -> cq.Workplane:
+    """Loft from root profile (at z=0) to tip profile (at z=height,
+    rotated by twist_deg about Z). Done as a single Workplane chain so
+    CadQuery's loft sees both wires.
+    """
+    return (cq.Workplane("XY")
+            .polyline(root_pts).close()
+            .workplane(offset=height)
+            .transformed(rotate=(0, 0, float(twist_deg)))
+            .polyline(tip_pts).close()
+            .loft(combine=True, ruled=False))
+
+
+def turbine_wheel(blade_count: int, od: float, hub_d: float,
+                  hub_thickness: float, blade_chord: float = 0.0,
+                  blade_twist_deg: float = 18.0) -> cq.Workplane:
+    """Disc with N airfoil blades arranged around the rim, each twisted."""
+    if blade_count < 4:
+        raise ValueError("turbine needs >=4 blades")
+    n = int(blade_count)
+    chord = float(blade_chord) or od * 0.18
+    blade_height = (od - hub_d) / 2.0
+    disc = (cq.Workplane("XY").circle(od / 2).extrude(hub_thickness)
+            .faces("+Z").workplane().hole(hub_d * 0.35))
+    root_pts = _blade_profile_pts(chord, thickness_pct=10, camber_pct=3)
+    tip_pts  = _blade_profile_pts(chord * 0.75, thickness_pct=6, camber_pct=4)
+    blade = _twisted_loft(root_pts, tip_pts, blade_height, blade_twist_deg)
+    # blade was built along +Z; rotate so it extends radially (+Y), then nudge to rim
+    blade = (blade.rotate((0, 0, 0), (1, 0, 0), -90)
+             .translate((0, (hub_d + od) / 4, hub_thickness / 2)))
+    body = disc
+    for i in range(n):
+        body = body.union(blade.rotate((0, 0, 0), (0, 0, 1), 360.0 * i / n))
+    return body
+
+
+def propeller(blade_count: int, diameter: float, hub_d: float,
+              root_chord: float = 0.0, tip_chord: float = 0.0,
+              twist_deg: float = 28.0) -> cq.Workplane:
+    """N-bladed propeller with twisted airfoil blades."""
+    n = int(blade_count)
+    if n < 2:
+        raise ValueError("propeller needs >=2 blades")
+    r = diameter / 2.0
+    rc = float(root_chord) or r * 0.18
+    tc = float(tip_chord)  or r * 0.08
+    span = r - hub_d / 2
+    hub_t = max(hub_d * 0.4, span * 0.05)
+    hub = (cq.Workplane("XY").circle(hub_d / 2).extrude(hub_t)
+           .faces("+Z").workplane().hole(hub_d * 0.35))
+    root_pts = _blade_profile_pts(rc, thickness_pct=12, camber_pct=5)
+    tip_pts  = _blade_profile_pts(tc, thickness_pct=6,  camber_pct=2)
+    blade = _twisted_loft(root_pts, tip_pts, span, twist_deg)
+    blade = (blade.rotate((0, 0, 0), (1, 0, 0), -90)
+             .translate((0, hub_d / 2 + span / 2, hub_t / 2)))
+    body = hub
+    for i in range(n):
+        body = body.union(blade.rotate((0, 0, 0), (0, 0, 1), 360.0 * i / n))
+    return body
+
+
+def compressor_stage(blade_count: int, hub_d: float, od: float,
+                     blade_height: float, blade_chord: float = 0.0,
+                     twist_deg: float = 12.0) -> cq.Workplane:
+    """Annular array of compressor blades on a thin hub ring."""
+    n = int(blade_count)
+    chord = float(blade_chord) or (math.pi * (hub_d + od) / 2) / (n * 2.2)
+    ring_t = float(blade_height) * 0.25
+    ring = (cq.Workplane("XY").circle(od / 2).circle(hub_d / 2).extrude(ring_t))
+    root_pts = _blade_profile_pts(chord, thickness_pct=8, camber_pct=3)
+    tip_pts  = _blade_profile_pts(chord * 0.85, thickness_pct=5, camber_pct=2)
+    blade = _twisted_loft(root_pts, tip_pts, float(blade_height), twist_deg)
+    blade = (blade.rotate((0, 0, 0), (1, 0, 0), -90)
+             .translate((0, (hub_d + od) / 4, ring_t / 2)))
+    body = ring
+    for i in range(n):
+        body = body.union(blade.rotate((0, 0, 0), (0, 0, 1), 360.0 * i / n))
+    return body
+
+
+def rocket_nozzle(throat_d: float, exit_d: float, inlet_d: float,
+                  length: float) -> cq.Workplane:
+    """Converging-diverging bell-style nozzle as a thin shelled revolve.
+    Approximate parabolic divergent + linear convergent.
+    """
+    Lc = float(length) * 0.30   # convergent length
+    Ld = float(length) * 0.70   # divergent length
+    r_in   = inlet_d / 2
+    r_thr  = throat_d / 2
+    r_exit = exit_d / 2
+    # outer profile in XZ plane (X is radial, Z is axial)
+    pts = []
+    # convergent section: simple linear from inlet to throat
+    n_seg = 14
+    for i in range(n_seg + 1):
+        f = i / n_seg
+        z = f * Lc
+        r = r_in + (r_thr - r_in) * f
+        pts.append((r, z))
+    # divergent: parabolic bell
+    n_seg2 = 22
+    for i in range(1, n_seg2 + 1):
+        f = i / n_seg2
+        z = Lc + f * Ld
+        # parabolic: r = r_thr + (r_exit - r_thr) * sqrt(f)
+        r = r_thr + (r_exit - r_thr) * math.sqrt(f)
+        pts.append((r, z))
+    # Closed contour from the Z axis out to the nozzle surface and back.
+    # Revolving this about Z makes a solid bell with the nozzle's outer shape.
+    contour = [(0.0, 0.0)] + list(pts) + [(0.0, pts[-1][1])]
+    profile = (cq.Workplane("XZ")
+               .moveTo(*contour[0])
+               .polyline(contour[1:])
+               .close())
+    solid = profile.revolve(360)  # XZ workplane defaults to revolving about Z
+    # Shell it from the +Z face (the exit) so visitors can see the bell.
+    try:
+        return solid.faces(">Z").shell(-max(0.8, (r_in + r_exit) / 50))
+    except Exception:
+        return solid  # if shell fails, return solid bell — still looks right
+
+
+def combustor_can(diameter: float, length: float, wall_thickness: float = 2.0,
+                  hole_diameter: float = 4.0, hole_rings: int = 6,
+                  holes_per_ring: int = 24) -> cq.Workplane:
+    """Cylindrical combustor liner with rings of cooling holes."""
+    od = float(diameter)
+    L  = float(length)
+    w  = float(wall_thickness)
+    # hollow cylinder
+    body = (cq.Workplane("XY").circle(od / 2).circle(od / 2 - w).extrude(L))
+    # cooling holes: radial cylinders cut through the wall
+    rings = int(hole_rings)
+    per = int(holes_per_ring)
+    cutters: list = []
+    for ri in range(rings):
+        z = L * (ri + 1) / (rings + 1)
+        for hi in range(per):
+            ang = 360.0 * hi / per + (ri % 2) * (180.0 / per)  # stagger rings
+            theta = math.radians(ang)
+            # cylinder along the radial direction at (theta, z)
+            # Build a horizontal cylinder along +X then rotate to the radial axis.
+            h = (cq.Workplane("YZ")
+                 .circle(hole_diameter / 2)
+                 .extrude(od / 2 + 1.0)
+                 .rotate((0, 0, 0), (0, 0, 1), math.degrees(theta))
+                 .translate((0, 0, z)))
+            cutters.append(h)
+    if cutters:
+        union = cutters[0]
+        for c in cutters[1:]:
+            union = union.union(c)
+        try:
+            body = body.cut(union)
+        except Exception:
+            pass
+    return body
+
+
+def honeycomb_panel(length: float, width: float, thickness: float,
+                    cell_size: float = 6.0, wall_thickness: float = 0.6) -> cq.Workplane:
+    """Honeycomb structural panel: plate with hexagonal cells cut out.
+    cell_size is the flat-to-flat dimension of one hex.
+    """
+    L, W, T = float(length), float(width), float(thickness)
+    s = float(cell_size)
+    w = float(wall_thickness)
+    # hex sketch with inset = wall_thickness
+    inner_af = max(s - 2 * w, s * 0.4)
+    plate = cq.Workplane("XY").box(L, W, T, centered=(True, True, False))
+    # hex grid spacing
+    dx = s * math.sqrt(3) / 2  # row spacing (flat-to-flat geometry)
+    dy = s * 1.5               # column spacing (vertex-to-vertex)
+    nx = int(L / dx) + 1
+    ny = int(W / dy) + 1
+    cutter = cq.Workplane("XY")
+    for j in range(-ny // 2, ny // 2 + 1):
+        for i in range(-nx // 2, nx // 2 + 1):
+            x = i * dx
+            y = j * dy + (i % 2) * dy / 2
+            if abs(x) > L / 2 - inner_af / 2: continue
+            if abs(y) > W / 2 - inner_af / 2: continue
+            cell = (cq.Workplane("XY").center(x, y)
+                    .polygon(6, inner_af).extrude(T + 0.1))
+            cutter = cutter.add(cell)
+    try:
+        return plate.cut(cutter.combine())
+    except Exception:
+        return plate
+
+
 def v_pulley(od: float, width: float, bore: float,
              belt_width: float = 6.0) -> cq.Workplane:
     """Single V-groove pulley. Groove is a 40-deg trapezoidal cut."""
@@ -351,6 +607,77 @@ class LibraryEngine:
                       float(belt_width)).translate((x, y, z))
         self._store(name, wp)
         return f"created V-pulley '{name}' OD={od} W={width} bore={bore}"
+
+    # ---- aerospace mockups ---- #
+    def turbine(self, name: str, blade_count: int, od: float, hub_d: float,
+                hub_thickness: float, blade_chord: float = 0,
+                blade_twist_deg: float = 18,
+                x: float = 0, y: float = 0, z: float = 0) -> str:
+        wp = turbine_wheel(int(blade_count), float(od), float(hub_d),
+                           float(hub_thickness), float(blade_chord),
+                           float(blade_twist_deg)).translate((x, y, z))
+        self._store(name, wp)
+        return (f"created turbine wheel '{name}' {blade_count} blades, "
+                f"OD={od}, hub={hub_d}")
+
+    def propeller(self, name: str, blade_count: int, diameter: float,
+                  hub_d: float, root_chord: float = 0, tip_chord: float = 0,
+                  twist_deg: float = 28,
+                  x: float = 0, y: float = 0, z: float = 0) -> str:
+        wp = propeller(int(blade_count), float(diameter), float(hub_d),
+                       float(root_chord), float(tip_chord),
+                       float(twist_deg)).translate((x, y, z))
+        self._store(name, wp)
+        return (f"created propeller '{name}' {blade_count} blades, "
+                f"D={diameter}, hub={hub_d}")
+
+    def compressor(self, name: str, blade_count: int, hub_d: float, od: float,
+                   blade_height: float, blade_chord: float = 0,
+                   twist_deg: float = 12,
+                   x: float = 0, y: float = 0, z: float = 0) -> str:
+        wp = compressor_stage(int(blade_count), float(hub_d), float(od),
+                              float(blade_height), float(blade_chord),
+                              float(twist_deg)).translate((x, y, z))
+        self._store(name, wp)
+        return (f"created compressor stage '{name}' {blade_count} blades, "
+                f"hub={hub_d}, OD={od}, height={blade_height}")
+
+    def nozzle(self, name: str, throat_d: float, exit_d: float,
+               inlet_d: float, length: float,
+               x: float = 0, y: float = 0, z: float = 0) -> str:
+        wp = rocket_nozzle(float(throat_d), float(exit_d), float(inlet_d),
+                           float(length)).translate((x, y, z))
+        self._store(name, wp)
+        return (f"created bell nozzle '{name}' throat={throat_d} exit={exit_d} "
+                f"inlet={inlet_d} L={length}")
+
+    def combustor(self, name: str, diameter: float, length: float,
+                  wall_thickness: float = 2, hole_diameter: float = 4,
+                  hole_rings: int = 6, holes_per_ring: int = 24,
+                  x: float = 0, y: float = 0, z: float = 0) -> str:
+        wp = combustor_can(float(diameter), float(length), float(wall_thickness),
+                           float(hole_diameter), int(hole_rings),
+                           int(holes_per_ring)).translate((x, y, z))
+        self._store(name, wp)
+        return (f"created combustor can '{name}' D={diameter} L={length} "
+                f"{hole_rings}x{holes_per_ring} cooling holes")
+
+    def honeycomb(self, name: str, length: float, width: float,
+                  thickness: float, cell_size: float = 6,
+                  wall_thickness: float = 0.6,
+                  x: float = 0, y: float = 0, z: float = 0) -> str:
+        wp = honeycomb_panel(float(length), float(width), float(thickness),
+                             float(cell_size),
+                             float(wall_thickness)).translate((x, y, z))
+        self._store(name, wp)
+        return (f"created honeycomb panel '{name}' {length}x{width}x{thickness} "
+                f"cell={cell_size}")
+
+    def naca(self, name: str, code: str, chord: float, span: float,
+             x: float = 0, y: float = 0, z: float = 0) -> str:
+        wp = naca_airfoil(str(code), float(chord), float(span)).translate((x, y, z))
+        self._store(name, wp)
+        return f"created NACA {code} airfoil section '{name}' chord={chord} span={span}"
 
 
 def dispatch_library(eng: LibraryEngine, op: str, args: dict) -> str:
