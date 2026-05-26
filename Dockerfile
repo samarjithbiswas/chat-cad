@@ -7,7 +7,7 @@ RUN conda install -n base -c conda-forge -y python=3.11 cadquery=2.4 \
     && conda clean -afy
 
 # Python deps that aren't on conda-forge in the version we want
-RUN pip install --no-cache-dir flask==3.* "anthropic>=0.40" "numpy>=1.24,<2" "scipy>=1.11" "matplotlib>=3.7" "Pillow>=10.0"
+RUN pip install --no-cache-dir flask==3.* "anthropic>=0.40" "google-genai>=0.3" "numpy>=1.24,<2" "scipy>=1.11" "matplotlib>=3.7" "Pillow>=10.0"
 
 # Copy app sources
 COPY . /app/

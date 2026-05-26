@@ -43,9 +43,22 @@ OUTPUT = os.environ.get("CHATCAD_OUTPUT", _default_output)
 app = Flask(__name__, template_folder="templates", static_folder="static")
 engine = CadEngine(OUTPUT)
 chat_history: list[dict] = []  # Claude conversation history
+gemini_history: list[dict] = []  # Gemini conversation history (separate format)
 _lock = threading.Lock()
 
 DEFAULT_MODEL = "claude-opus-4-7"
+DEFAULT_GEMINI_MODEL = "gemini-2.0-flash"
+
+
+def _detect_backend(api_key: str) -> str:
+    """Return 'anthropic', 'gemini', or 'none' based on key prefix."""
+    if not api_key:
+        return "none"
+    if api_key.startswith("sk-ant-"):
+        return "anthropic"
+    if api_key.startswith("AIza"):
+        return "gemini"
+    return "anthropic"  # default fallback for unknown formats
 
 
 def _refresh_stl() -> None:
@@ -106,8 +119,9 @@ def chat():
     if not message:
         return jsonify({"reply": "(empty message)", "ops": [], "parts": engine.list_parts()})
 
+    backend = _detect_backend(api_key)
     with _lock:
-        if api_key:
+        if backend == "anthropic":
             try:
                 from anthropic import Anthropic
                 client = Anthropic(api_key=api_key)
@@ -115,12 +129,21 @@ def chat():
             except Exception as e:
                 reply = f"Claude call failed: {e}\nFalling back to parser.\n\n" + run_parser(engine, message)
                 ops = []
+        elif backend == "gemini":
+            try:
+                from llm_gemini import run_gemini
+                gmodel = model if model.startswith("gemini") else DEFAULT_GEMINI_MODEL
+                reply, ops = run_gemini(api_key, gmodel, gemini_history, engine, message)
+            except Exception as e:
+                reply = f"Gemini call failed: {e}\nFalling back to parser.\n\n" + run_parser(engine, message)
+                ops = []
         else:
             reply = run_parser(engine, message)
             ops = []
 
         _refresh_stl()
-        return jsonify({"reply": reply, "ops": ops, "parts": engine.list_parts()})
+        return jsonify({"reply": reply, "ops": ops, "parts": engine.list_parts(),
+                        "backend": backend})
 
 
 @app.route("/sketches")
@@ -190,6 +213,7 @@ def reset():
     with _lock:
         engine.clear()
         chat_history.clear()
+        gemini_history.clear()
         _refresh_stl()
     return jsonify({"ok": True})
 

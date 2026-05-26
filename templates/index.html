@@ -116,14 +116,21 @@
   <div id="side">
     <div id="title">Chat CAD <small id="kstat">parser mode</small></div>
     <div id="settings">
-      <label>Anthropic API key (optional)
-        <input id="apikey" type="password" placeholder="sk-ant-..." />
+      <label>API key (Anthropic or Google AI — optional)
+        <input id="apikey" type="password" placeholder="sk-ant-... or AIza... (Google AI, free)" />
       </label>
       <label>Model
         <select id="model">
-          <option value="claude-opus-4-7">claude-opus-4-7</option>
-          <option value="claude-sonnet-4-6">claude-sonnet-4-6</option>
-          <option value="claude-haiku-4-5-20251001">claude-haiku-4-5</option>
+          <optgroup label="Anthropic (paid)">
+            <option value="claude-opus-4-7">claude-opus-4-7</option>
+            <option value="claude-sonnet-4-6">claude-sonnet-4-6</option>
+            <option value="claude-haiku-4-5-20251001">claude-haiku-4-5</option>
+          </optgroup>
+          <optgroup label="Google AI (free tier)">
+            <option value="gemini-2.0-flash">gemini-2.0-flash</option>
+            <option value="gemini-2.5-flash">gemini-2.5-flash</option>
+            <option value="gemini-2.5-pro">gemini-2.5-pro</option>
+          </optgroup>
         </select>
       </label>
       <div style="font-size:10px;opacity:0.5;line-height:1.4;margin-top:2px">
@@ -251,8 +258,31 @@ const modelEl  = document.getElementById('model');
 const kstat    = document.getElementById('kstat');
 apikeyEl.value = localStorage.getItem('cc_apikey') || '';
 modelEl.value  = localStorage.getItem('cc_model')  || modelEl.value;
-const refreshKstat = () => { kstat.textContent = apikeyEl.value ? 'claude mode' : 'parser mode'; };
+function detectBackend(key) {
+  if (!key) return 'parser';
+  if (key.startsWith('sk-ant-')) return 'claude';
+  if (key.startsWith('AIza'))    return 'gemini';
+  return 'claude'; // unknown prefix — try Anthropic
+}
+function autoPickModel(backend) {
+  // If the user just pasted a Gemini key but model is still Claude, switch it,
+  // and vice versa.
+  const cur = modelEl.value;
+  if (backend === 'gemini' && !cur.startsWith('gemini')) {
+    modelEl.value = 'gemini-2.0-flash';
+    localStorage.setItem('cc_model', modelEl.value);
+  } else if (backend === 'claude' && cur.startsWith('gemini')) {
+    modelEl.value = 'claude-opus-4-7';
+    localStorage.setItem('cc_model', modelEl.value);
+  }
+}
+const refreshKstat = () => {
+  const b = detectBackend(apikeyEl.value);
+  kstat.textContent = b + ' mode';
+  autoPickModel(b);
+};
 refreshKstat();
+apikeyEl.addEventListener('input',  () => { localStorage.setItem('cc_apikey', apikeyEl.value); refreshKstat(); });
 apikeyEl.addEventListener('change', () => { localStorage.setItem('cc_apikey', apikeyEl.value); refreshKstat(); });
 modelEl .addEventListener('change', () => { localStorage.setItem('cc_model',  modelEl.value); });
 
@@ -759,7 +789,8 @@ async function send() {
     });
     const data = await res.json();
     if (data.ops && data.ops.length) addMsg('ops', 'ops', data.ops.join('\n'));
-    addMsg('bot', apikeyEl.value ? 'claude' : 'cad', data.reply || '(no reply)');
+    addMsg('bot', data.backend || detectBackend(apikeyEl.value) || 'cad',
+           data.reply || '(no reply)');
     reloadScene();
     // refresh whichever side tab is open
     const active = document.querySelector('.tab.active').dataset.tab;

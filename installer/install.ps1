@@ -56,7 +56,7 @@ if (-not $envExists) {
 # numpy must be <2 because cadquery's nptyping dep references np.bool8,
 # which was removed in NumPy 2.x. Removing the cap will break import.
 Step "Installing/updating Python deps (flask, anthropic, numpy<2, scipy)..."
-& $EnvPython -m pip install --upgrade --quiet flask "anthropic>=0.40" "numpy>=1.24,<2" "scipy>=1.11" "matplotlib>=3.7" "Pillow>=10.0"
+& $EnvPython -m pip install --upgrade --quiet flask "anthropic>=0.40" "google-genai>=0.3" "numpy>=1.24,<2" "scipy>=1.11" "matplotlib>=3.7" "Pillow>=10.0"
 Ok "Python deps ready."
 
 # --- 4. Sanity check --- #
