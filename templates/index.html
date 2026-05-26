@@ -204,6 +204,7 @@
     <div id="pane3d" class="pane active">
       <div id="toolbar">
         <button id="reset">New project</button>
+        <button id="clearScene" title="Clear all parts (keeps chat history)">Clear scene</button>
         <button id="fitBtn">Fit view</button>
         <button id="exportStl">Export STL</button>
         <button id="exportStep">Export STEP</button>
@@ -221,7 +222,7 @@
         <span id="secVal" style="font-size:11px;opacity:0.7;min-width:60px">0.00 mm</span>
         <span style="width:1px;height:18px;background:#2a2f37;margin:0 4px"></span>
         <button id="measureBtn">Measure</button>
-        <button id="measureClear">Clear</button>
+        <button id="measureClear" title="Clear distance markers (does NOT clear parts)">Clear measure</button>
         <span style="flex:1"></span>
         <span style="font-size:11px;opacity:0.55">drag = rotate · right-drag = pan · wheel = zoom</span>
       </div>
@@ -988,6 +989,17 @@ document.getElementById('reset').addEventListener('click', async () => {
   reloadScene();
   refreshSketches(); refreshAssemblies(); refreshParts(); refreshBOM();
 });
+
+// "Clear scene" — wipes parts but keeps the chat log so user keeps context.
+document.getElementById('clearScene').addEventListener('click', async () => {
+  try {
+    await fetch('/reset', { method: 'POST' });
+    addMsg('system', 'cad', 'scene cleared');
+    reloadScene();
+    refreshSketches(); refreshAssemblies(); refreshParts(); refreshBOM();
+  } catch (e) { addMsg('bot', 'error', String(e)); }
+});
+
 document.getElementById('exportStl').addEventListener('click',
   () => window.location.href = '/export/stl');
 document.getElementById('exportStep').addEventListener('click',
