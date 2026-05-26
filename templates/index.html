@@ -139,6 +139,25 @@
   .swatch { display: inline-block; width: 16px; height: 16px; border-radius: 3px;
             border: 1px solid var(--border); vertical-align: middle; }
 
+  /* Right-click context menu over the 3D canvas */
+  #ctxmenu { position: fixed; background: var(--bg-2); color: var(--text);
+             border: 1px solid var(--border); border-radius: 6px;
+             box-shadow: 0 6px 18px var(--shadow-overlay); padding: 4px 0;
+             font-size: 12px; min-width: 180px; z-index: 200; display: none;
+             user-select: none; }
+  #ctxmenu.visible { display: block; }
+  #ctxmenu .ctxitem { padding: 6px 14px; cursor: pointer;
+                      display: flex; justify-content: space-between; gap: 14px;
+                      align-items: center; }
+  #ctxmenu .ctxitem:hover { background: var(--accent); color: #fff; }
+  #ctxmenu .ctxitem.disabled { opacity: 0.4; cursor: not-allowed; }
+  #ctxmenu .ctxitem.disabled:hover { background: transparent; color: var(--text); }
+  #ctxmenu .ctxsep { height: 1px; background: var(--border); margin: 4px 0; }
+  #ctxmenu .ctxhead { padding: 4px 14px; font-size: 10px; opacity: 0.55;
+                      text-transform: uppercase; letter-spacing: 0.05em;
+                      font-family: ui-monospace, monospace; }
+  #ctxmenu kbd { font-size: 10px; opacity: 0.55; font-family: ui-monospace, monospace; }
+
   /* Ribbon toolbar tabs (above the 3D-pane toolbar) */
   #ribbontabs { display: flex; background: var(--bg-2); border-bottom: 1px solid var(--border); }
   .ribtab { padding: 6px 14px; font-size: 11px; letter-spacing: 0.03em;
@@ -234,7 +253,8 @@
           <optgroup label="Local Ollama (no key, native, chat only)">
             <option value="ollama:llama3.2">ollama: llama3.2</option>
             <option value="ollama:llama3.1">ollama: llama3.1</option>
-            <option value="ollama:qwen2.5">ollama: qwen2.5</option>
+            <option value="ollama:qwen2.5">ollama: qwen2.5 (7B)</option>
+            <option value="ollama:qwen2.5:14b">ollama: qwen2.5:14b</option>
             <option value="ollama:qwen2.5-coder">ollama: qwen2.5-coder</option>
             <option value="ollama:mistral">ollama: mistral</option>
           </optgroup>
@@ -344,6 +364,25 @@
         <div class="row"><span>bbox Z</span><b id="propBZ">—</b></div>
       </div>
       <div id="status">scene empty</div>
+      <div id="ctxmenu">
+        <div class="ctxhead" id="ctxname">(part)</div>
+        <div class="ctxsep"></div>
+        <div class="ctxitem" data-act="move">Move <kbd>drag arrows</kbd></div>
+        <div class="ctxitem" data-act="rotate">Rotate <kbd>drag rings</kbd></div>
+        <div class="ctxitem" data-act="focus">Focus camera</div>
+        <div class="ctxsep"></div>
+        <div class="ctxitem" data-act="hide">Hide / show</div>
+        <div class="ctxitem" data-act="duplicate">Duplicate</div>
+        <div class="ctxitem" data-act="mirrorXY">Mirror about XY</div>
+        <div class="ctxitem" data-act="mirrorXZ">Mirror about XZ</div>
+        <div class="ctxitem" data-act="mirrorYZ">Mirror about YZ</div>
+        <div class="ctxsep"></div>
+        <div class="ctxitem" data-act="fea">Run FEA</div>
+        <div class="ctxitem" data-act="thermal">Run thermal</div>
+        <div class="ctxitem" data-act="drawing">Drawing PDF</div>
+        <div class="ctxsep"></div>
+        <div class="ctxitem" data-act="delete" style="color:#d27066">Delete</div>
+      </div>
       </div><!-- /#pane3d-canvasbox -->
       </div><!-- /#pane3d-row -->
     </div>
@@ -790,6 +829,91 @@ canvas.addEventListener('click', e => {
   if (typeof measureMode !== 'undefined' && measureMode) return;  // measure tool active
   if (gizmo && gizmo.dragging) return;                            // gizmo handle being dragged
   onCanvasPick(e);
+});
+
+// ----- right-click context menu -----
+const ctxmenu = document.getElementById('ctxmenu');
+function hideCtxMenu() { ctxmenu.classList.remove('visible'); }
+canvas.addEventListener('contextmenu', async (ev) => {
+  ev.preventDefault();
+  // raycast under the cursor
+  const r = canvas.getBoundingClientRect();
+  const x = ((ev.clientX - r.left) / r.width) * 2 - 1;
+  const y = -((ev.clientY - r.top) / r.height) * 2 + 1;
+  _raycaster.setFromCamera({ x, y }, camera);
+  const meshes = partGroup.children.filter(o => o.isMesh);
+  const hit = _raycaster.intersectObjects(meshes, false)[0];
+  if (!hit) { hideCtxMenu(); return; }
+  // select the part so subsequent actions know what to operate on
+  if (_selected && _selected !== hit.object && _selected.material) {
+    _selected.material.emissive = new THREE.Color(0x000000);
+    _selected.material.emissiveIntensity = 0;
+  }
+  _selected = hit.object;
+  _selected.material.emissive = new THREE.Color(0x2c5fb3);
+  _selected.material.emissiveIntensity = 0.25;
+  // populate menu header + show near the cursor
+  document.getElementById('ctxname').textContent = _selected.name;
+  ctxmenu.style.left = ev.clientX + 'px';
+  ctxmenu.style.top  = ev.clientY + 'px';
+  ctxmenu.classList.add('visible');
+});
+// any click outside the menu closes it
+document.addEventListener('click', e => {
+  if (!ctxmenu.contains(e.target)) hideCtxMenu();
+});
+// menu actions
+ctxmenu.addEventListener('click', async (ev) => {
+  const item = ev.target.closest('.ctxitem');
+  if (!item) return;
+  const act = item.dataset.act;
+  hideCtxMenu();
+  if (!_selected) return;
+  const name = _selected.name;
+  if (act === 'move') {
+    gizmo.setMode('translate'); targetGizmoToSelection();
+  } else if (act === 'rotate') {
+    gizmo.setMode('rotate'); targetGizmoToSelection();
+  } else if (act === 'focus') {
+    const box = new THREE.Box3().setFromObject(_selected);
+    const center = box.getCenter(new THREE.Vector3());
+    const size = box.getSize(new THREE.Vector3());
+    const dist = size.length() * 1.8 + 20;
+    controls.target.copy(center);
+    const dir = camera.position.clone().sub(center).normalize();
+    camera.position.copy(center.clone().add(dir.multiplyScalar(dist)));
+    controls.update();
+  } else if (act === 'hide') {
+    const edges = partGroup.children.find(o => o.name === name + '__edges');
+    _selected.visible = !_selected.visible;
+    if (edges) edges.visible = _selected.visible;
+    if (_selected.visible) ftHidden.delete(name); else ftHidden.add(name);
+    refreshFeatureTree();
+  } else if (act === 'duplicate') {
+    addMsg('system', 'cad', `duplicating '${name}'...`);
+    await fetch('/tool/run', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ op: 'duplicate', args: { src: name, dx: 5, dy: 0, dz: 0 }})});
+    reloadScene(); refreshFeatureTree();
+  } else if (act === 'mirrorXY' || act === 'mirrorXZ' || act === 'mirrorYZ') {
+    const plane = act.slice(-2);
+    const dst = `${name}_m${plane}`;
+    await fetch('/tool/run', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ op: 'mirror', args: { out: dst, src: name, plane }})});
+    addMsg('system', 'cad', `mirrored '${name}' across ${plane} -> '${dst}'`);
+    reloadScene(); refreshFeatureTree();
+  } else if (act === 'fea') {
+    document.getElementById('feaRun').click();
+  } else if (act === 'thermal') {
+    document.getElementById('thermalRun').click();
+  } else if (act === 'drawing') {
+    window.location.href = '/drawing/' + encodeURIComponent(name) + '.pdf';
+  } else if (act === 'delete') {
+    if (!confirm(`Delete part "${name}"?`)) return;
+    await fetch('/tool/run', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ op: 'delete', args: { name }})});
+    clearSelection();
+    reloadScene(); refreshFeatureTree();
+  }
 });
 
 // ----- transform gizmo (move / rotate selected part) -----

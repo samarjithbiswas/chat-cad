@@ -436,6 +436,18 @@ class CadEngine:
         del self.parts[name]
         return f"deleted '{name}'"
 
+    def duplicate(self, src: str, dst: str | None = None,
+                  dx: float = 5, dy: float = 0, dz: float = 0) -> str:
+        """Copy a part to a new name, offset by (dx,dy,dz) to avoid overlap."""
+        self._snapshot()
+        if dst is None:
+            i = 2
+            while f"{src}_{i}" in self.parts:
+                i += 1
+            dst = f"{src}_{i}"
+        self.parts[dst] = self._require(src).translate((float(dx), float(dy), float(dz)))
+        return f"duplicated '{src}' -> '{dst}' offset ({dx},{dy},{dz})"
+
     def list_parts(self) -> str:
         if not self.parts:
             return "scene is empty"
