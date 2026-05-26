@@ -51,6 +51,50 @@ def _post(path: str, payload: dict, timeout: int = 180) -> dict:
         return json.loads(r.read().decode("utf-8"))
 
 
+# Known parser command tokens. Same list as the JS bypass — if the LLM's
+# text reply contains lines starting with these, we run them through the
+# parser as a fallback.
+_PARSER_FIRST_TOKENS = {
+    "box","cyl","cylinder","sphere","cone","torus","wedge","poly","polygon","text",
+    "scale","mirror","lpat","ppat","translate","rotate","move","rot","union","cut",
+    "intersect","fillet","chamfer","filletx","chamferx","shell","hole","cbore",
+    "csink","tap","boss","pocket","cpat","delete","list","clear","undo","help",
+    "export","sweep","loft","helix","thread",
+    "bolt","boltT","nut","washer","gear","spring","slot","key",
+    "bearing","insert","dowel","hinge","pulley",
+    "turbine","propeller","compressor","nozzle","combustor","honeycomb","naca",
+    "turbojet","turbofan","bolt_stack","gear_train","piston_engine","engine",
+    "sk","sketch","asm","assembly","mat","step","sheet",
+    "tslot","angle","sqtube","rtube","ibeam","cchan",
+}
+
+
+def _try_parser_fallback(engine, text: str) -> tuple[bool, list[str]]:
+    """Scan the LLM's text response for lines that look like parser commands
+    (start with a known parser token) and execute them via the engine.
+    Returns (any_executed, list_of_human_readable_lines).
+    """
+    from llm import run_parser
+    if not text:
+        return False, []
+    executed: list[str] = []
+    for raw_line in text.splitlines():
+        line = raw_line.strip().lstrip("> ").rstrip(";")
+        # strip code-block fences
+        if line.startswith("```") or not line:
+            continue
+        first = line.split(None, 1)[0].lower() if line else ""
+        if first not in _PARSER_FIRST_TOKENS:
+            continue
+        try:
+            result = run_parser(engine, line)
+            if isinstance(result, str) and not result.startswith("ERROR"):
+                executed.append(f"{line}  →  {result}")
+        except Exception as e:
+            executed.append(f"{line}  →  failed: {e}")
+    return bool(executed), executed
+
+
 def check_ollama() -> tuple[bool, str]:
     """Quick health check; returns (ok, message)."""
     try:
@@ -132,6 +176,18 @@ def run_ollama(model: str, history: list[dict], engine,
         })
 
         if not tool_calls:
+            # Fallback: small Llama models often output code-style text
+            # instead of structured tool calls. Scan their text reply for
+            # lines that match the typed-parser grammar and run them.
+            executed, raw = _try_parser_fallback(engine, content)
+            if executed:
+                op_log.extend(raw)
+                return (
+                    f"(LLM didn't call a tool; fell back to parser)\n"
+                    f"executed {len(raw)} command(s):\n"
+                    + "\n".join("  - " + s for s in raw),
+                    op_log,
+                )
             return (content.strip() or "(done)", op_log)
 
         # execute each tool call and append a tool message

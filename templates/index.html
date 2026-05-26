@@ -59,13 +59,41 @@
               font-size: 11px; background: var(--ops-bg);
               border-left: 2px solid var(--ops-border); padding: 6px 8px;
               border-radius: 0 4px 4px 0; }
-  #input { display: flex; border-top: 1px solid var(--border); }
-  #input textarea { flex: 1; background: var(--bg-input); color: var(--text);
+  #input { position: relative; border-top: 1px solid var(--border);
+           background: var(--bg-2); display: flex; flex-direction: column;
+           flex-shrink: 0; }
+  #cmdbar { padding: 6px 12px 4px; display: flex; gap: 8px;
+            align-items: center; font-size: 10px; color: var(--text-dim);
+            text-transform: uppercase; letter-spacing: 0.06em;
+            background: var(--bg-3); border-top: 1px solid var(--border); }
+  #cmdbar .dot { display: inline-block; width: 7px; height: 7px;
+                 border-radius: 50%; background: var(--accent); }
+  #cmdbar .dot.parser { background: #8fb98f; }
+  #cmdbar .dot.ollama { background: #d6c08f; }
+  #cmdbar .dot.browser { background: #c590e0; }
+  #cmdbar .dot.gemini { background: #6fb3ff; }
+  #inputrow { display: flex; }
+  #inputrow textarea { flex: 1; background: var(--bg-input); color: var(--text);
                     border: 0; padding: 10px 12px; font-family: inherit;
                     font-size: 13px; resize: none; outline: none; min-height: 56px; }
-  #input button { background: var(--accent); color: #fff; border: 0;
-                  padding: 0 18px; font-weight: 600; cursor: pointer; }
-  #input button:hover { background: var(--accent-h); }
+  #inputrow button { background: var(--accent); color: #fff; border: 0;
+                     padding: 0 18px; font-weight: 600; cursor: pointer; }
+  #inputrow button:hover { background: var(--accent-h); }
+  #autocomp { position: absolute; bottom: 100%; left: 0; right: 0;
+              background: var(--bg-2); border: 1px solid var(--border);
+              border-bottom: 0; max-height: 220px; overflow-y: auto;
+              display: none; box-shadow: 0 -4px 12px var(--shadow-overlay);
+              z-index: 50; }
+  #autocomp.visible { display: block; }
+  .acitem { padding: 6px 12px; font-size: 12px; cursor: pointer;
+            display: flex; gap: 10px; align-items: baseline;
+            font-family: ui-monospace, monospace; }
+  .acitem:hover, .acitem.selected { background: var(--accent); color: #fff; }
+  .acitem .acname { font-weight: 600; min-width: 90px; }
+  .acitem .acdesc { opacity: 0.65; font-family: ui-sans-serif, system-ui, sans-serif;
+                    font-size: 11px; }
+  .acitem .acdesc kbd { background: var(--bg-3); border-radius: 2px;
+                        padding: 0 4px; font-size: 10px; opacity: 0.7; }
 
   #main { display: flex; flex-direction: column; min-width: 0; background: var(--bg); }
   #tabs { display: flex; border-bottom: 1px solid var(--border); background: var(--bg-3); }
@@ -290,8 +318,17 @@
     </div>
     <div id="log"></div>
     <div id="input">
-      <textarea id="msg" placeholder="describe a part, or type 'help'"></textarea>
-      <button id="send">Send</button>
+      <div id="cmdbar">
+        <span class="dot" id="cmdbar-dot"></span>
+        <span id="cmdbar-mode">parser mode</span>
+        <span style="flex:1"></span>
+        <span style="font-style:italic;opacity:0.7;text-transform:none;letter-spacing:0">Tab to complete · Enter to run</span>
+      </div>
+      <div id="autocomp"></div>
+      <div id="inputrow">
+        <textarea id="msg" placeholder="Type a command (e.g. box base 40 30 8) or describe a part in plain English"></textarea>
+        <button id="send">Send</button>
+      </div>
     </div>
   </div>
 
@@ -572,6 +609,11 @@ const refreshKstat = () => {
   const b = detectBackend(apikeyEl.value);
   kstat.textContent = b + ' mode';
   autoPickModel(b);
+  // also sync the command-bar mode indicator
+  const cmdDot = document.getElementById('cmdbar-dot');
+  const cmdMode = document.getElementById('cmdbar-mode');
+  if (cmdDot)  { cmdDot.className = 'dot ' + b; }
+  if (cmdMode) { cmdMode.textContent = b + ' mode'; }
 };
 refreshKstat();
 apikeyEl.addEventListener('input',  () => { localStorage.setItem('cc_apikey', apikeyEl.value); refreshKstat(); });
@@ -1771,6 +1813,150 @@ modeAgent.addEventListener('click', () => setMode('agent'));
 
 const msgEl = document.getElementById('msg');
 const sendBtn = document.getElementById('send');
+
+// ----- command autocomplete (SolidWorks-style command bar) -----
+const CMD_DOCS = [
+  { name:'box',       hint:'<name> L W H [x y z]',            desc:'rectangular box centred at (x,y,z)' },
+  { name:'cyl',       hint:'<name> r h [x y z]',              desc:'cylinder along Z' },
+  { name:'sphere',    hint:'<name> r [x y z]',                desc:'sphere' },
+  { name:'cone',      hint:'<name> r1 r2 h [x y z]',          desc:'truncated cone along Z' },
+  { name:'torus',     hint:'<name> R r [x y z]',              desc:'torus on XY plane' },
+  { name:'wedge',     hint:'<name> dx dy dz [x y z]',         desc:'triangular wedge' },
+  { name:'poly',      hint:'<name> sides r h [x y z]',        desc:'n-gon prism' },
+  { name:'text',      hint:'<name> "string" size depth',      desc:'extruded 3D text' },
+  { name:'union',     hint:'<out> <a> <b>',                   desc:'boolean union' },
+  { name:'cut',       hint:'<out> <a> <b>',                   desc:'boolean subtract (a - b)' },
+  { name:'intersect', hint:'<out> <a> <b>',                   desc:'boolean intersect' },
+  { name:'fillet',    hint:'<name> r',                        desc:'fillet all edges' },
+  { name:'chamfer',   hint:'<name> d',                        desc:'chamfer all edges' },
+  { name:'filletx',   hint:'<name> r [selector]',             desc:'fillet edges matching a selector' },
+  { name:'chamferx',  hint:'<name> d [selector]',             desc:'chamfer matching edges' },
+  { name:'shell',     hint:'<name> t [face]',                 desc:'hollow shell' },
+  { name:'hole',      hint:'<name> r [depth]',                desc:'drill hole into +Z face' },
+  { name:'cbore',     hint:'<name> d cbore_d cbore_d depth',  desc:'counterbore hole' },
+  { name:'csink',     hint:'<name> d csk_d [angle]',          desc:'countersink hole' },
+  { name:'tap',       hint:'<name> M-spec depth',             desc:'tapped hole' },
+  { name:'mirror',    hint:'<out> <src> [XY|XZ|YZ]',          desc:'mirror part' },
+  { name:'lpat',      hint:'<prefix> <src> dx dy dz count',   desc:'linear pattern' },
+  { name:'ppat',      hint:'<prefix> <src> count [angle] [axis]', desc:'polar pattern' },
+  { name:'scale',     hint:'<name> sx [sy sz]',               desc:'scale part' },
+  { name:'move',      hint:'<name> dx dy dz',                 desc:'translate' },
+  { name:'rot',       hint:'<name> <X|Y|Z> deg',              desc:'rotate' },
+  { name:'delete',    hint:'<name>',                          desc:'delete part' },
+  { name:'list',      hint:'',                                desc:'list parts in scene' },
+  { name:'clear',     hint:'',                                desc:'clear scene' },
+  { name:'undo',      hint:'',                                desc:'undo last operation' },
+  { name:'help',      hint:'',                                desc:'full command reference' },
+  // sketch
+  { name:'sk new',    hint:'<sketch> [XY|XZ|YZ]',             desc:'create a new 2D sketch' },
+  { name:'sk rect',   hint:'<sk> <name> x y w h',             desc:'add a rectangle' },
+  { name:'sk circle', hint:'<sk> <name> cx cy r',             desc:'add a circle' },
+  { name:'sk line',   hint:'<sk> <name> x1 y1 x2 y2',         desc:'add a line' },
+  { name:'sk solve',  hint:'<sk>',                            desc:'solve constraints' },
+  { name:'sk ext',    hint:'<sk> <part> depth',               desc:'extrude sketch' },
+  { name:'sk rev',    hint:'<sk> <part> [axis] [deg]',        desc:'revolve sketch' },
+  // assembly
+  { name:'asm new',   hint:'<asm>',                           desc:'create assembly' },
+  { name:'asm add',   hint:'<asm> <comp> <part> [x y z]',     desc:'add component' },
+  { name:'asm solve', hint:'<asm>',                           desc:'solve mate constraints' },
+  // library
+  { name:'bolt',      hint:'<name> M-spec length',            desc:'M-series hex bolt' },
+  { name:'boltT',     hint:'<name> M-spec length',            desc:'real threaded bolt' },
+  { name:'nut',       hint:'<name> M-spec [x y z]',           desc:'hex nut' },
+  { name:'washer',    hint:'<name> M-spec [x y z]',           desc:'flat washer' },
+  { name:'gear',      hint:'<name> module teeth width [bore]',desc:'spur gear' },
+  { name:'spring',    hint:'<name> wire_d coil_d pitch turns',desc:'helical spring' },
+  { name:'bearing',   hint:'<name> bore od width',            desc:'ball bearing' },
+  { name:'dowel',     hint:'<name> d L',                      desc:'dowel pin' },
+  { name:'hinge',     hint:'<name> L leaf_w pin_d',           desc:'barrel hinge' },
+  { name:'pulley',    hint:'<name> od width [bore]',          desc:'V-pulley' },
+  // aerospace
+  { name:'turbine',   hint:'<name> blades od hub_d hub_t',    desc:'turbine wheel' },
+  { name:'propeller', hint:'<name> blades D hub_d',           desc:'propeller' },
+  { name:'compressor',hint:'<name> blades hub_d od height',   desc:'compressor stage' },
+  { name:'nozzle',    hint:'<name> throat exit inlet L',      desc:'rocket nozzle' },
+  { name:'combustor', hint:'<name> D L',                      desc:'combustor can' },
+  { name:'honeycomb', hint:'<name> L W T [cell] [wall]',      desc:'honeycomb panel' },
+  { name:'naca',      hint:'<name> 4-digit-code chord span',  desc:'NACA airfoil section' },
+  // complex assemblies
+  { name:'turbojet',  hint:'<prefix> [fan_d] [length]',       desc:'full single-spool turbojet engine' },
+  { name:'turbofan',  hint:'<prefix> [fan_d] [length]',       desc:'high-bypass turbofan engine' },
+  { name:'bolt_stack',hint:'<prefix> [M-spec] [plate_t] [size]', desc:'plate + bolt + 2 washers + nut' },
+  { name:'gear_train',hint:'<prefix> [n] [module] [teeth] [width]', desc:'meshing gears in a line' },
+  { name:'engine',    hint:'<prefix> [bore] [stroke]',        desc:'single-cylinder piston engine' },
+  // materials + profiles
+  { name:'mat assign',hint:'<part> <material>',               desc:'aluminum/steel/brass/pla/etc.' },
+  { name:'mat report',hint:'<part>',                          desc:'mass / COG / inertia' },
+  { name:'tslot',     hint:'<name> series L',                 desc:'T-slot extrusion (20/30/40)' },
+  { name:'angle',     hint:'<name> a b t L',                  desc:'L-section angle iron' },
+  { name:'sqtube',    hint:'<name> side wall L',              desc:'square tube' },
+  { name:'rtube',     hint:'<name> od wall L',                desc:'round tube' },
+  { name:'ibeam',     hint:'<name> H W web flange L',         desc:'I-beam' },
+  { name:'cchan',     hint:'<name> H W t L',                  desc:'C-channel' },
+  // sheet metal
+  { name:'sheet flat',hint:'<name> L W t',                    desc:'flat sheet' },
+  { name:'sheet l',   hint:'<name> L W t leg_a leg_b [r]',    desc:'L-bend sheet' },
+  { name:'sheet box', hint:'<name> L W H t [r]',              desc:'open-top sheet box' },
+];
+
+const acEl = document.getElementById('autocomp');
+let _acIndex = 0;
+let _acFiltered = [];
+
+function _matchPrefix(s) {
+  const lc = s.toLowerCase().trimStart();
+  if (!lc) return [];
+  return CMD_DOCS.filter(c => c.name.startsWith(lc)).slice(0, 10);
+}
+function _renderAC(filtered) {
+  acEl.innerHTML = '';
+  _acFiltered = filtered;
+  _acIndex = 0;
+  if (!filtered.length) { acEl.classList.remove('visible'); return; }
+  for (const c of filtered) {
+    const d = document.createElement('div');
+    d.className = 'acitem';
+    if (c === filtered[0]) d.classList.add('selected');
+    d.innerHTML = `<span class="acname">${c.name}</span>` +
+                  `<span class="acdesc"><kbd>${c.hint || '—'}</kbd> ${c.desc}</span>`;
+    d.addEventListener('mousedown', e => {
+      e.preventDefault();
+      msgEl.value = c.name + ' ';
+      acEl.classList.remove('visible');
+      msgEl.focus();
+    });
+    acEl.appendChild(d);
+  }
+  acEl.classList.add('visible');
+}
+msgEl.addEventListener('input', () => {
+  // only autocomplete when user is on the FIRST word (no space typed yet)
+  const v = msgEl.value;
+  const onFirstWord = !v.includes(' ') && !v.includes('\n');
+  if (onFirstWord) _renderAC(_matchPrefix(v));
+  else acEl.classList.remove('visible');
+});
+msgEl.addEventListener('keydown', e => {
+  if (!acEl.classList.contains('visible')) return;
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    _acIndex = (_acIndex + 1) % _acFiltered.length;
+    acEl.querySelectorAll('.acitem').forEach((el, i) => el.classList.toggle('selected', i === _acIndex));
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    _acIndex = (_acIndex - 1 + _acFiltered.length) % _acFiltered.length;
+    acEl.querySelectorAll('.acitem').forEach((el, i) => el.classList.toggle('selected', i === _acIndex));
+  } else if (e.key === 'Tab') {
+    e.preventDefault();
+    const pick = _acFiltered[_acIndex];
+    if (pick) { msgEl.value = pick.name + ' '; acEl.classList.remove('visible'); }
+  } else if (e.key === 'Escape') {
+    acEl.classList.remove('visible');
+  }
+});
+document.addEventListener('click', e => {
+  if (!acEl.contains(e.target) && e.target !== msgEl) acEl.classList.remove('visible');
+});
 
 async function sendAgent(text) {
   addMsg('user', 'brief', text);
