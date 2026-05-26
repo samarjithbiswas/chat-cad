@@ -19,6 +19,7 @@ from materials import MaterialsEngine
 from profiles import ProfilesEngine
 from step_io import StepIOEngine
 from sheet_metal import SheetMetalEngine
+from knowledge import KnowledgeStore
 
 
 class CadEngine:
@@ -34,6 +35,7 @@ class CadEngine:
         self.profiles = ProfilesEngine(self)
         self.step_io = StepIOEngine(self)
         self.sheet = SheetMetalEngine(self)
+        self.knowledge = KnowledgeStore(os.path.join(output_dir, "..", "knowledge"))
 
     # ---------- internal ----------
     def _snapshot(self) -> None:

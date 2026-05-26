@@ -198,6 +198,7 @@
       <div class="tab" data-tab="asm">Assemblies</div>
       <div class="tab" data-tab="parts">Parts</div>
       <div class="tab" data-tab="bom">BOM</div>
+      <div class="tab" data-tab="know">Knowledge</div>
     </div>
 
     <div id="pane3d" class="pane active">
@@ -249,6 +250,29 @@
         <button id="asmrefresh">Refresh</button>
       </div>
       <div class="infopane" id="asminfo">(no assembly selected)</div>
+    </div>
+
+    <div id="paneknow" class="pane">
+      <div class="sktoolbar">
+        <span style="font-size:12px;opacity:0.7">Knowledge base (RAG):</span>
+        <input id="knowSearch" type="text" placeholder="search notes..." style="flex:1;max-width:260px" />
+        <button id="knowSearchBtn">Search</button>
+        <button id="knowRefresh">Refresh</button>
+        <span style="flex:1"></span>
+        <span style="font-size:11px;opacity:0.55">TF-IDF; auto-saved after each Design Agent run</span>
+      </div>
+      <div style="padding:12px 16px;display:flex;flex-direction:column;gap:8px;
+                  border-bottom:1px solid var(--border);background:var(--bg-2)">
+        <textarea id="knowAddText" rows="3"
+          placeholder='Add a note ("we use M4 bolts for all panel screws", "wall thickness >= 3 mm for 3D print", etc.)'
+          style="background:var(--bg-input);color:var(--text);border:1px solid var(--border);
+                 border-radius:4px;padding:8px;font-family:inherit;font-size:12px;resize:vertical"></textarea>
+        <div style="display:flex;gap:8px">
+          <button id="knowAddBtn">Add note</button>
+          <span style="flex:1"></span>
+        </div>
+      </div>
+      <div id="knowList" class="infopane"></div>
     </div>
 
     <div id="paneparts" class="pane">
@@ -328,22 +352,24 @@ modelEl .addEventListener('change', () => { localStorage.setItem('cc_model',  mo
 
 // ----- theme toggle -----
 const themeBtn = document.getElementById('themeToggle');
+// These two are populated by the Three.js section later; we test via window.*
+// to avoid temporal-dead-zone errors when applyTheme runs at module init.
 function applyTheme(t) {
   if (t === 'light') document.documentElement.classList.add('light');
   else                document.documentElement.classList.remove('light');
   themeBtn.textContent = t === 'light' ? 'Dark' : 'Light';
   // update Three.js scene background and grid colours if scene is ready
-  if (typeof scene !== 'undefined') {
-    scene.background = new THREE.Color(t === 'light' ? 0xf0f3f7 : 0x171b22);
-    if (scene.fog) scene.fog.color = new THREE.Color(t === 'light' ? 0xf0f3f7 : 0x171b22);
-    if (typeof grid !== 'undefined') {
-      scene.remove(grid);
+  if (window.__scene) {
+    window.__scene.background = new THREE.Color(t === 'light' ? 0xf0f3f7 : 0x171b22);
+    if (window.__scene.fog) window.__scene.fog.color = new THREE.Color(t === 'light' ? 0xf0f3f7 : 0x171b22);
+    if (window.__grid) {
+      window.__scene.remove(window.__grid);
       const major = t === 'light' ? 0xc0c6cd : 0x4a5060;
       const minor = t === 'light' ? 0xe0e4ea : 0x2a2f37;
       const g = new THREE.GridHelper(400, 40, major, minor);
       g.rotation.x = Math.PI / 2;
-      scene.add(g);
-      grid = g;
+      window.__scene.add(g);
+      window.__grid = g;
     }
   }
   localStorage.setItem('cc_theme', t);
@@ -367,7 +393,8 @@ const panes = { '3d': document.getElementById('pane3d'),
                 'sk': document.getElementById('panesk'),
                 'asm': document.getElementById('paneasm'),
                 'parts': document.getElementById('paneparts'),
-                'bom': document.getElementById('panebom') };
+                'bom': document.getElementById('panebom'),
+                'know': document.getElementById('paneknow') };
 tabs.forEach(t => t.addEventListener('click', () => {
   tabs.forEach(x => x.classList.remove('active'));
   Object.values(panes).forEach(p => p.classList.remove('active'));
@@ -379,6 +406,7 @@ tabs.forEach(t => t.addEventListener('click', () => {
   if (id === 'asm') refreshAssemblies();
   if (id === 'parts') refreshParts();
   if (id === 'bom') refreshBOM();
+  if (id === 'know') refreshKnowledge();
 }));
 
 // ----- three.js scene -----
@@ -470,6 +498,10 @@ scene.add(ground);
 let grid = new THREE.GridHelper(400, 40, 0x4a5060, 0x2a2f37);
 grid.rotation.x = Math.PI / 2;
 scene.add(grid);
+// expose for applyTheme()
+window.__scene = scene; window.__grid = grid;
+// apply persisted theme now that the scene exists
+applyTheme(localStorage.getItem('cc_theme') || 'dark');
 scene.add(new THREE.AxesHelper(40));
 
 // Parts: name -> { mesh, edges, color }
@@ -783,6 +815,60 @@ async function refreshParts() {
 }
 document.getElementById('partsrefresh').addEventListener('click', refreshParts);
 
+// ----- knowledge tab -----
+function _escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+}
+function _renderNotes(notes) {
+  const list = document.getElementById('knowList');
+  if (!notes || !notes.length) { list.textContent = '(no notes yet)'; return; }
+  list.innerHTML = '';
+  for (const n of notes) {
+    const div = document.createElement('div');
+    div.style.cssText = 'border:1px solid var(--border);border-radius:4px;padding:8px 10px;margin-bottom:8px;background:var(--bg-2)';
+    const score = (n.score !== undefined) ? ` <span style="opacity:0.55">score=${n.score.toFixed(3)}</span>` : '';
+    div.innerHTML =
+      `<div style="font-size:10px;opacity:0.55;letter-spacing:0.5px;margin-bottom:4px;text-transform:uppercase">`
+      + `${_escapeHtml(n.source || 'note')} · ${_escapeHtml(n.id)} · ${_escapeHtml(n.created || '')}${score}`
+      + `<button data-id="${_escapeHtml(n.id)}" class="knowDel" style="float:right;padding:0 6px;font-size:10px">x</button>`
+      + `</div>`
+      + `<div style="white-space:pre-wrap">${_escapeHtml(n.text)}</div>`;
+    list.appendChild(div);
+  }
+  list.querySelectorAll('.knowDel').forEach(b => b.addEventListener('click', async () => {
+    await fetch('/knowledge/remove/' + encodeURIComponent(b.dataset.id), { method: 'POST' });
+    refreshKnowledge();
+  }));
+}
+async function refreshKnowledge() {
+  try {
+    const d = await (await fetch('/knowledge/list')).json();
+    _renderNotes(d.notes);
+  } catch (e) { document.getElementById('knowList').textContent = 'error: ' + e; }
+}
+document.getElementById('knowRefresh').addEventListener('click', refreshKnowledge);
+document.getElementById('knowAddBtn').addEventListener('click', async () => {
+  const ta = document.getElementById('knowAddText');
+  const text = ta.value.trim();
+  if (!text) return;
+  await fetch('/knowledge/add', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ text }),
+  });
+  ta.value = '';
+  refreshKnowledge();
+});
+document.getElementById('knowSearchBtn').addEventListener('click', async () => {
+  const q = document.getElementById('knowSearch').value.trim();
+  if (!q) { refreshKnowledge(); return; }
+  const d = await (await fetch('/knowledge/search?q=' + encodeURIComponent(q))).json();
+  _renderNotes(d.hits);
+});
+document.getElementById('knowSearch').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('knowSearchBtn').click();
+});
+
 // ----- chat -----
 const log = document.getElementById('log');
 function addMsg(cls, who, text) {
@@ -882,6 +968,7 @@ async function send() {
     if (active === 'asm') refreshAssemblies();
     if (active === 'parts') refreshParts();
     if (active === 'bom') refreshBOM();
+    if (active === 'know') refreshKnowledge();
   } catch (e) {
     addMsg('bot', 'error', String(e));
   } finally {

@@ -216,6 +216,39 @@ def drawing_pdf(name: str):
                      download_name=f"{name}.pdf")
 
 
+@app.route("/knowledge/list")
+def knowledge_list():
+    with _lock:
+        return jsonify({"notes": engine.knowledge.list_notes()})
+
+
+@app.route("/knowledge/add", methods=["POST"])
+def knowledge_add():
+    data = request.get_json(force=True)
+    text = (data.get("text") or "").strip()
+    tags = data.get("tags") or []
+    if not text:
+        return jsonify({"error": "text is required"}), 400
+    with _lock:
+        nid = engine.knowledge.add(text, tags=tags, source="manual")
+    return jsonify({"ok": True, "id": nid})
+
+
+@app.route("/knowledge/remove/<note_id>", methods=["POST"])
+def knowledge_remove(note_id: str):
+    with _lock:
+        ok = engine.knowledge.remove(note_id)
+    return jsonify({"ok": ok})
+
+
+@app.route("/knowledge/search")
+def knowledge_search():
+    q = (request.args.get("q") or "").strip()
+    with _lock:
+        hits = engine.knowledge.search(q, k=10)
+    return jsonify({"hits": hits})
+
+
 @app.route("/drawings.pdf")
 def drawings_all_pdf():
     """Multi-page drawing PDF: one page per part in the scene."""

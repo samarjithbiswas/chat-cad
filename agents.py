@@ -134,9 +134,13 @@ Respond as STRICT JSON only, no prose, no markdown. Schema:
 {"plan":[{"name":"...","intent":"...","success_criteria":"..."},...]}"""
 
 
-def plan_design(client, model: str, brief: str) -> list[dict]:
+def plan_design(client, model: str, brief: str,
+                knowledge_block: str = "") -> list[dict]:
+    system = PLANNER_SYSTEM
+    if knowledge_block:
+        system = PLANNER_SYSTEM + "\n\n" + knowledge_block
     resp = client.messages.create(
-        model=model, max_tokens=1024, system=PLANNER_SYSTEM,
+        model=model, max_tokens=1024, system=system,
         messages=[{"role": "user", "content": f"Brief:\n{brief}"}],
     )
     text = "".join(b.text for b in resp.content if getattr(b, "type", None) == "text")
@@ -225,9 +229,21 @@ def design_loop(client, model: str, engine: CadEngine, brief: str,
     log: list[AgentEvent] = []
     log.append(AgentEvent("system", "log", f"brief: {brief}"))
 
+    # 0. retrieve from knowledge base (TF-IDF over user notes + past designs)
+    knowledge_block = ""
+    if hasattr(engine, "knowledge"):
+        try:
+            knowledge_block = engine.knowledge.context_block(brief, k=5)
+            if knowledge_block:
+                log.append(AgentEvent("system", "log",
+                                      "retrieved knowledge notes: "
+                                      + str(knowledge_block.count("\n- "))))
+        except Exception as e:
+            log.append(AgentEvent("system", "log", f"knowledge lookup failed: {e}"))
+
     # 1. plan
     try:
-        plan = plan_design(client, model, brief)
+        plan = plan_design(client, model, brief, knowledge_block)
     except Exception as e:
         log.append(AgentEvent("planner", "log", f"plan failed: {e}"))
         return [e.to_json() for e in log]
@@ -292,6 +308,7 @@ def design_loop(client, model: str, engine: CadEngine, brief: str,
             if verdict == "done":
                 log.append(AgentEvent("system", "log",
                                       "critic marked design complete"))
+                _autosave_design(engine, brief, log)
                 return [e.to_json() for e in log]
             if verdict == "continue":
                 break
@@ -299,4 +316,33 @@ def design_loop(client, model: str, engine: CadEngine, brief: str,
 
     log.append(AgentEvent("system", "log",
                           "all milestones complete (or revise cap hit)"))
+    _autosave_design(engine, brief, log)
     return [e.to_json() for e in log]
+
+
+def _autosave_design(engine: CadEngine, brief: str,
+                     log: list[AgentEvent]) -> None:
+    """Add a knowledge note summarising this design so future briefs can
+    retrieve it.
+    """
+    if not hasattr(engine, "knowledge"):
+        return
+    try:
+        parts_list = list(engine.parts.keys())
+        if not parts_list:
+            return
+        # collect material info if known
+        mats = {}
+        for p in parts_list:
+            try:
+                mats[p] = engine.materials.material_of(p)
+            except Exception:
+                pass
+        summary = (
+            f"BRIEF: {brief}\n"
+            f"PARTS: {', '.join(parts_list)}\n"
+            f"MATERIALS: {mats if mats else '(none assigned)'}\n"
+        )
+        engine.knowledge.add(summary, tags=["design"], source="agent")
+    except Exception:
+        pass
