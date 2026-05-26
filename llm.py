@@ -1347,6 +1347,32 @@ def run_parser(engine: CadEngine, line: str) -> str:
             return engine.library.honeycomb(name, _f(L), _f(W), _f(T),
                                             cell, wall,
                                             xyz[0], xyz[1], xyz[2])
+        if cmd == "pc":
+            # pc <subcommand> <args...>
+            sub = a[0].lower() if a else ""
+            r = a[1:]
+            if sub == "square":
+                # pc square <name> <a> <t> <hole_size>
+                return engine.phononic.square_hole(r[0], _f(r[1]), _f(r[2]), _f(r[3]))
+            if sub == "hex":
+                return engine.phononic.hex_hole(r[0], _f(r[1]), _f(r[2]), _f(r[3]))
+            if sub == "cross":
+                # pc cross <name> <a> <t> <arm_L> <arm_w>
+                return engine.phononic.cross(r[0], _f(r[1]), _f(r[2]), _f(r[3]), _f(r[4]))
+            if sub == "pillar":
+                # pc pillar <name> <a> <t> <pillar_d> <pillar_h>
+                return engine.phononic.pillar(r[0], _f(r[1]), _f(r[2]), _f(r[3]), _f(r[4]))
+            if sub == "core":
+                return engine.phononic.core_inclusion(r[0], _f(r[1]), _f(r[2]), _f(r[3]))
+            if sub == "bragg":
+                # pc bragg <name> <plate_w> <layer1> <layer2> ...
+                name = r[0]; plate_w = _f(r[1])
+                layers = [_f(v) for v in r[2:]]
+                return engine.phononic.bragg(name, layers, plate_w)
+            if sub == "lattice":
+                # pc lattice <out> <unit> <a> <nx> <ny>
+                return engine.phononic.lattice(r[0], r[1], _f(r[2]), int(r[3]), int(r[4]))
+            return f"unknown pc sub-command '{sub}' (try square, hex, cross, pillar, core, bragg, lattice)"
         if cmd == "turbojet":
             # turbojet <prefix> [fan_d] [length]
             prefix, *rest = a

@@ -21,6 +21,7 @@ from step_io import StepIOEngine
 from sheet_metal import SheetMetalEngine
 from knowledge import KnowledgeStore
 from assemblies_recipes import RecipesEngine
+from phononic import PhononicEngine
 
 
 class CadEngine:
@@ -38,6 +39,7 @@ class CadEngine:
         self.sheet = SheetMetalEngine(self)
         self.knowledge = KnowledgeStore(os.path.join(output_dir, "..", "knowledge"))
         self.recipes = RecipesEngine(self)
+        self.phononic = PhononicEngine(self)
 
     # ---------- internal ----------
     def _snapshot(self) -> None:
@@ -555,6 +557,12 @@ def dispatch(engine: CadEngine, op: str, args: dict[str, Any]) -> str:
         fn = getattr(engine.sketches, sub, None)
         if fn is None or sub.startswith("_"):
             raise ValueError(f"unknown sketch op '{op}'")
+        return fn(**args)
+    if op.startswith("pc_"):
+        sub = op[len("pc_"):]
+        fn = getattr(engine.phononic, sub, None)
+        if fn is None or sub.startswith("_"):
+            raise ValueError(f"unknown phononic op '{op}'")
         return fn(**args)
     if op.startswith("rcp_"):
         sub = op[len("rcp_"):]
