@@ -187,12 +187,17 @@
             <option value="gemini-2.5-flash">gemini-2.5-flash</option>
             <option value="gemini-2.5-pro">gemini-2.5-pro</option>
           </optgroup>
-          <optgroup label="Local Ollama (no key, no internet, chat only)">
+          <optgroup label="Local Ollama (no key, native, chat only)">
             <option value="ollama:llama3.2">ollama: llama3.2</option>
             <option value="ollama:llama3.1">ollama: llama3.1</option>
             <option value="ollama:qwen2.5">ollama: qwen2.5</option>
             <option value="ollama:qwen2.5-coder">ollama: qwen2.5-coder</option>
             <option value="ollama:mistral">ollama: mistral</option>
+          </optgroup>
+          <optgroup label="In-browser WebLLM (no install, ~600 MB one-time DL)">
+            <option value="browser:Llama-3.2-1B-Instruct-q4f16_1-MLC">browser: llama-3.2-1b</option>
+            <option value="browser:Llama-3.2-3B-Instruct-q4f16_1-MLC">browser: llama-3.2-3b (1.8 GB)</option>
+            <option value="browser:Qwen2.5-1.5B-Instruct-q4f16_1-MLC">browser: qwen2.5-1.5b</option>
           </optgroup>
         </select>
       </label>
@@ -366,7 +371,8 @@ const kstat    = document.getElementById('kstat');
 apikeyEl.value = localStorage.getItem('cc_apikey') || '';
 modelEl.value  = localStorage.getItem('cc_model')  || modelEl.value;
 function detectBackend(key) {
-  if (modelEl.value && modelEl.value.startsWith('ollama:')) return 'ollama';
+  if (modelEl.value && modelEl.value.startsWith('ollama:'))  return 'ollama';
+  if (modelEl.value && modelEl.value.startsWith('browser:')) return 'browser';
   if (!key) return 'parser';
   if (key.startsWith('sk-ant-')) return 'claude';
   if (key.startsWith('AIza'))    return 'gemini';
@@ -1144,6 +1150,97 @@ async function sendAgent(text) {
   reloadScene();
 }
 
+// ---------- in-browser WebLLM (no install, no key) ---------- #
+let _webllmEngine = null;
+let _webllmTools = null;
+let _webllmInitializing = false;
+
+async function ensureWebllm(modelId) {
+  if (_webllmEngine && _webllmEngine._modelId === modelId) return _webllmEngine;
+  if (_webllmInitializing) {
+    addMsg('system', 'webllm', 'still loading model from previous request...');
+    return null;
+  }
+  _webllmInitializing = true;
+  addMsg('system', 'webllm',
+         `loading ${modelId} into your browser via WebGPU. First time only — ~600 MB cached locally afterwards.`);
+  try {
+    const webllm = await import('https://esm.run/@mlc-ai/web-llm');
+    const eng = await webllm.CreateMLCEngine(modelId, {
+      initProgressCallback: (p) => {
+        if (p && p.text) {
+          // update the most recent system message with progress
+          const last = log.querySelector('.msg.system:last-of-type div:last-child');
+          if (last) last.textContent = p.text;
+        }
+      },
+    });
+    eng._modelId = modelId;
+    _webllmEngine = eng;
+    // tools registered once
+    if (!_webllmTools) {
+      const r = await fetch('/tools/list'); _webllmTools = (await r.json()).tools;
+    }
+    addMsg('system', 'webllm', 'model loaded. Subsequent prompts are fast and offline.');
+    return eng;
+  } catch (e) {
+    addMsg('bot', 'error', 'WebLLM init failed: ' + String(e) +
+           '\nLikely cause: your browser lacks WebGPU. Chrome 113+, Edge 113+, or Safari 18 needed.');
+    return null;
+  } finally {
+    _webllmInitializing = false;
+  }
+}
+
+async function sendBrowser(text, modelId) {
+  addMsg('user', 'you', text);
+  const eng = await ensureWebllm(modelId);
+  if (!eng) return;
+  // Convert our Anthropic-style TOOLS to OpenAI-style for WebLLM
+  const tools = _webllmTools.map(t => ({
+    type: 'function',
+    function: { name: t.name, description: t.description, parameters: t.input_schema },
+  }));
+  const messages = [
+    { role: 'system', content: 'You translate the user\'s request into ONE call to the most appropriate CAD tool from the function list. Pick concrete numerical arguments. Respond with the function call only.' },
+    { role: 'user', content: text },
+  ];
+  let resp;
+  try {
+    resp = await eng.chat.completions.create({
+      messages, tools, tool_choice: 'auto', stream: false, temperature: 0.2,
+    });
+  } catch (e) {
+    addMsg('bot', 'error', 'WebLLM call failed: ' + String(e));
+    return;
+  }
+  const choice = resp.choices?.[0];
+  const tcs = choice?.message?.tool_calls || [];
+  if (!tcs.length) {
+    addMsg('bot', 'webllm', choice?.message?.content || '(no tool call returned)');
+    return;
+  }
+  const opsLog = [];
+  for (const tc of tcs) {
+    const name = tc.function?.name;
+    let args = tc.function?.arguments;
+    if (typeof args === 'string') { try { args = JSON.parse(args); } catch { args = {}; } }
+    try {
+      const r = await fetch('/tool/run', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ op: name, args: args || {} }),
+      });
+      const d = await r.json();
+      opsLog.push(`${name}(${JSON.stringify(args)}) → ${d.result || d.error}`);
+    } catch (e) {
+      opsLog.push(`${name}(...) failed: ${e}`);
+    }
+  }
+  if (opsLog.length) addMsg('ops', 'ops', opsLog.join('\n'));
+  addMsg('bot', 'webllm', 'done');
+  reloadScene();
+}
+
 async function send() {
   const text = msgEl.value.trim();
   if (!text) return;
@@ -1151,6 +1248,11 @@ async function send() {
   sendBtn.disabled = true; sendBtn.textContent = '...';
   try {
     if (mode === 'agent') { await sendAgent(text); reloadScene(); return; }
+    if (modelEl.value.startsWith('browser:')) {
+      const modelId = modelEl.value.slice('browser:'.length);
+      await sendBrowser(text, modelId);
+      return;
+    }
     addMsg('user', 'you', text);
     const res = await fetch('/chat', {
       method: 'POST', headers: {'Content-Type': 'application/json'},

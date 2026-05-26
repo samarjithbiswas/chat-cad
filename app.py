@@ -319,6 +319,37 @@ def reset():
     return jsonify({"ok": True})
 
 
+@app.route("/tool/run", methods=["POST"])
+def tool_run():
+    """Run a single named operation. Used by the in-browser WebLLM backend
+    so the browser-side LLM can call our CadQuery tools without going through
+    the full /chat loop (which lives on the server).
+    """
+    data = request.get_json(force=True)
+    op = (data.get("op") or "").strip()
+    args = data.get("args") or {}
+    if not op:
+        return jsonify({"error": "op is required"}), 400
+    with _lock:
+        try:
+            from cad_engine import dispatch
+            result = dispatch(engine, op, dict(args))
+            _refresh_stl()
+            return jsonify({"ok": True, "result": str(result),
+                            "parts": engine.list_parts()})
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)}), 400
+
+
+@app.route("/tools/list")
+def tools_list():
+    """Return the full Anthropic-style TOOLS array so the in-browser LLM can
+    register them as function declarations.
+    """
+    from llm import TOOLS
+    return jsonify({"tools": TOOLS})
+
+
 @app.route("/ollama/status")
 def ollama_status():
     """Quick health check used by the UI to show Ollama availability."""
