@@ -143,6 +143,38 @@
   #viewcube { position: absolute; right: 14px; top: 60px; width: 92px; height: 92px;
               user-select: none; pointer-events: auto; z-index: 5; }
 
+  /* Feature tree — collapsible left panel of the 3D pane */
+  #featuretree { width: 220px; background: var(--bg-2);
+                 border-right: 1px solid var(--border); overflow-y: auto;
+                 font-family: ui-sans-serif, system-ui, sans-serif;
+                 font-size: 12px; color: var(--text); display: flex;
+                 flex-direction: column; }
+  #ftheader { padding: 8px 12px; border-bottom: 1px solid var(--border);
+              font-weight: 600; font-size: 11px; letter-spacing: 0.04em;
+              text-transform: uppercase; color: var(--text-dim);
+              display: flex; align-items: center; gap: 6px; }
+  #ftheader button { background: var(--bg-3); color: var(--text);
+                     border: 1px solid var(--border); border-radius: 3px;
+                     padding: 1px 6px; font-size: 10px; cursor: pointer; }
+  #ftlist { flex: 1; padding: 4px; overflow-y: auto; }
+  .ftpart { display: flex; align-items: center; gap: 6px; padding: 4px 6px;
+            border-radius: 4px; cursor: pointer; }
+  .ftpart:hover { background: var(--bg-3); }
+  .ftpart.selected { background: var(--accent); color: #fff; }
+  .ftpart .ftswatch { width: 12px; height: 12px; border-radius: 2px;
+                      border: 1px solid var(--border); flex-shrink: 0; }
+  .ftpart .ftname { flex: 1; overflow: hidden; text-overflow: ellipsis;
+                    white-space: nowrap; }
+  .ftpart .ftactions { display: flex; gap: 3px; opacity: 0; transition: opacity 0.1s; }
+  .ftpart:hover .ftactions { opacity: 1; }
+  .ftpart.selected .ftactions { opacity: 1; }
+  .ftpart .ftactions button { background: transparent; color: inherit;
+                              border: 0; cursor: pointer; padding: 0 3px;
+                              font-size: 10px; opacity: 0.7; }
+  .ftpart .ftactions button:hover { opacity: 1; }
+  #pane3d-row { flex: 1; display: flex; min-height: 0; }
+  #pane3d-canvasbox { flex: 1; position: relative; min-width: 0; }
+
   /* Selected-part property card — floats over canvas, bottom-right */
   #propcard { position: absolute; right: 14px; bottom: 28px; width: 260px;
               background: var(--bg-2); border: 1px solid var(--border);
@@ -258,9 +290,25 @@
         <span style="width:1px;height:18px;background:#2a2f37;margin:0 4px"></span>
         <button id="measureBtn">Measure</button>
         <button id="measureClear" title="Clear distance markers (does NOT clear parts)">Clear measure</button>
+        <span style="width:1px;height:18px;background:var(--border);margin:0 4px"></span>
+        <button id="gizmoMove" title="Drag selected part to move">Move</button>
+        <button id="gizmoRot"  title="Drag rings to rotate selected part">Rotate</button>
+        <button id="gizmoOff"  title="Hide gizmo">Off</button>
+        <span style="width:1px;height:18px;background:var(--border);margin:0 4px"></span>
+        <button id="feaRun"    title="Run FEA on selected part">Simulate (FEA)</button>
         <span style="flex:1"></span>
         <span style="font-size:11px;opacity:0.55">drag = rotate · right-drag = pan · wheel = zoom</span>
       </div>
+      <div id="pane3d-row">
+      <div id="featuretree">
+        <div id="ftheader">
+          <span>Feature tree</span>
+          <span style="flex:1"></span>
+          <button id="ftrefresh" title="Refresh">↻</button>
+        </div>
+        <div id="ftlist"></div>
+      </div>
+      <div id="pane3d-canvasbox">
       <canvas id="canvas"></canvas>
       <canvas id="viewcube" width="184" height="184"></canvas>
       <div id="propcard">
@@ -275,6 +323,8 @@
         <div class="row"><span>bbox Z</span><b id="propBZ">—</b></div>
       </div>
       <div id="status">scene empty</div>
+      </div><!-- /#pane3d-canvasbox -->
+      </div><!-- /#pane3d-row -->
     </div>
 
     <div id="panesk" class="pane">
@@ -363,6 +413,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { STLLoader } from 'three/addons/loaders/STLLoader.js';
+import { TransformControls } from 'three/addons/controls/TransformControls.js';
 
 // ----- persisted settings -----
 const apikeyEl = document.getElementById('apikey');
@@ -716,7 +767,94 @@ async function onCanvasPick(ev) {
 }
 canvas.addEventListener('click', e => {
   if (typeof measureMode !== 'undefined' && measureMode) return;  // measure tool active
+  if (gizmo && gizmo.dragging) return;                            // gizmo handle being dragged
   onCanvasPick(e);
+});
+
+// ----- transform gizmo (move / rotate selected part) -----
+const gizmo = new TransformControls(camera, canvas);
+gizmo.setSize(0.7);
+gizmo.addEventListener('dragging-changed', e => { controls.enabled = !e.value; });
+gizmo.addEventListener('mouseUp', async () => {
+  if (!_selected) return;
+  const mode = gizmo.getMode();  // 'translate' or 'rotate'
+  // For translate: send the full new position as an absolute translate from origin.
+  // For rotate: extract Euler XYZ and send a rotate for each non-zero axis.
+  // CadQuery's translate is RELATIVE, so we send the delta from the last known pos.
+  if (mode === 'translate') {
+    const pos = _selected.position;
+    const prev = _selected.userData.cqPos || new THREE.Vector3(0, 0, 0);
+    const dx = pos.x - prev.x, dy = pos.y - prev.y, dz = pos.z - prev.z;
+    if (Math.abs(dx) + Math.abs(dy) + Math.abs(dz) > 0.01) {
+      await fetch('/tool/run', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ op: 'translate',
+          args: { name: _selected.name, dx, dy, dz } }),
+      });
+      _selected.userData.cqPos = pos.clone();
+      reloadScene();
+      refreshFeatureTree();
+    }
+  } else if (mode === 'rotate') {
+    const prev = _selected.userData.cqRot || new THREE.Euler(0, 0, 0);
+    const eul = _selected.rotation;
+    const rad2deg = d => d * 180 / Math.PI;
+    const ops = [];
+    if (Math.abs(eul.x - prev.x) > 0.001) ops.push(['X', rad2deg(eul.x - prev.x)]);
+    if (Math.abs(eul.y - prev.y) > 0.001) ops.push(['Y', rad2deg(eul.y - prev.y)]);
+    if (Math.abs(eul.z - prev.z) > 0.001) ops.push(['Z', rad2deg(eul.z - prev.z)]);
+    for (const [axis, deg] of ops) {
+      await fetch('/tool/run', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ op: 'rotate',
+          args: { name: _selected.name, axis, degrees: deg } }),
+      });
+    }
+    _selected.userData.cqRot = eul.clone();
+    if (ops.length) { reloadScene(); refreshFeatureTree(); }
+  }
+});
+// helper that re-targets the gizmo to the currently selected mesh
+function targetGizmoToSelection() {
+  if (!_selected) { gizmo.detach(); scene.remove(gizmo); return; }
+  scene.add(gizmo);
+  gizmo.attach(_selected);
+  if (!_selected.userData.cqPos)
+    _selected.userData.cqPos = _selected.position.clone();
+  if (!_selected.userData.cqRot)
+    _selected.userData.cqRot = _selected.rotation.clone();
+}
+document.getElementById('gizmoMove').addEventListener('click', () => {
+  gizmo.setMode('translate'); targetGizmoToSelection();
+});
+document.getElementById('gizmoRot').addEventListener('click', () => {
+  gizmo.setMode('rotate'); targetGizmoToSelection();
+});
+document.getElementById('gizmoOff').addEventListener('click', () => {
+  gizmo.detach(); scene.remove(gizmo);
+});
+
+// ----- FEA simulate button -----
+document.getElementById('feaRun').addEventListener('click', async () => {
+  if (!_selected) {
+    addMsg('bot', 'error', 'Select a part first (click it in the viewport or in the feature tree).');
+    return;
+  }
+  addMsg('system', 'fea', `running FEA on '${_selected.name}'... (cantilever load, this may take a few seconds)`);
+  try {
+    const r = await fetch('/fea/run', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ part: _selected.name, load_N: 100, axis: 'Z' }),
+    });
+    const d = await r.json();
+    if (d.error) { addMsg('bot', 'error', 'FEA: ' + d.error); return; }
+    addMsg('bot', 'fea',
+      `done. Max von Mises stress: ${d.max_stress_MPa?.toFixed(2) || '?'} MPa, ` +
+      `displacement: ${d.max_disp_mm?.toFixed(3) || '?'} mm. ` +
+      `(${d.n_nodes} nodes, ${d.n_elems} elements)`);
+  } catch (e) {
+    addMsg('bot', 'error', 'FEA call failed: ' + String(e));
+  }
 });
 
 function animate() {
@@ -1020,6 +1158,105 @@ async function refreshParts() {
 }
 document.getElementById('partsrefresh').addEventListener('click', refreshParts);
 
+// ----- feature tree (left side of 3D pane) -----
+const ftHidden = new Set();  // names of parts the user toggled hidden in viewport
+async function refreshFeatureTree() {
+  const list = document.getElementById('ftlist');
+  if (!list) return;
+  try {
+    const m = await (await fetch('/scene/manifest')).json();
+    if (!m.parts || !m.parts.length) {
+      list.innerHTML = '<div style="padding:14px;opacity:0.5;font-size:11px">(no parts)</div>';
+      return;
+    }
+    list.innerHTML = '';
+    for (const p of m.parts) {
+      const row = document.createElement('div');
+      row.className = 'ftpart';
+      if (_selected && _selected.name === p.name) row.classList.add('selected');
+      const hidden = ftHidden.has(p.name);
+      row.innerHTML =
+        `<span class="ftswatch" style="background:${p.color}"></span>` +
+        `<span class="ftname" title="${p.name}">${p.name}</span>` +
+        `<span class="ftactions">` +
+          `<button data-act="hide" title="Show / hide">${hidden ? '◯' : '●'}</button>` +
+          `<button data-act="focus" title="Focus camera">⊙</button>` +
+          `<button data-act="delete" title="Delete">×</button>` +
+        `</span>`;
+      // click row body → select
+      row.addEventListener('click', e => {
+        if (e.target.tagName === 'BUTTON') return;
+        const mesh = partGroup.children.find(o => o.name === p.name && o.isMesh);
+        if (!mesh) return;
+        // simulate canvas pick to reuse selection logic
+        if (_selected && _selected.material) {
+          _selected.material.emissive = new THREE.Color(0x000000);
+          _selected.material.emissiveIntensity = 0;
+        }
+        _selected = mesh;
+        mesh.material.emissive = new THREE.Color(0x2c5fb3);
+        mesh.material.emissiveIntensity = 0.25;
+        // populate property card
+        const entry = m.parts.find(x => x.name === p.name);
+        propName.textContent = p.name;
+        propSwatch.style.background = entry?.color || '#888';
+        if (entry?.bbox) {
+          propBX.textContent = (entry.bbox[3] - entry.bbox[0]).toFixed(2) + ' mm';
+          propBY.textContent = (entry.bbox[4] - entry.bbox[1]).toFixed(2) + ' mm';
+          propBZ.textContent = (entry.bbox[5] - entry.bbox[2]).toFixed(2) + ' mm';
+        }
+        propcard.classList.add('visible');
+        refreshFeatureTree();
+      });
+      // action buttons
+      row.querySelectorAll('.ftactions button').forEach(b => {
+        b.addEventListener('click', async ev => {
+          ev.stopPropagation();
+          const act = b.dataset.act;
+          if (act === 'hide') {
+            const mesh = partGroup.children.find(o => o.name === p.name && o.isMesh);
+            const edges = partGroup.children.find(o => o.name === p.name + '__edges');
+            if (ftHidden.has(p.name)) {
+              ftHidden.delete(p.name);
+              if (mesh) mesh.visible = true;
+              if (edges) edges.visible = true;
+            } else {
+              ftHidden.add(p.name);
+              if (mesh) mesh.visible = false;
+              if (edges) edges.visible = false;
+            }
+            refreshFeatureTree();
+          } else if (act === 'focus') {
+            const mesh = partGroup.children.find(o => o.name === p.name && o.isMesh);
+            if (mesh) {
+              const box = new THREE.Box3().setFromObject(mesh);
+              const center = box.getCenter(new THREE.Vector3());
+              const size = box.getSize(new THREE.Vector3());
+              const dist = size.length() * 1.8 + 20;
+              controls.target.copy(center);
+              const dir = camera.position.clone().sub(center).normalize();
+              camera.position.copy(center.clone().add(dir.multiplyScalar(dist)));
+              controls.update();
+            }
+          } else if (act === 'delete') {
+            if (!confirm(`Delete part "${p.name}"?`)) return;
+            await fetch('/tool/run', {
+              method: 'POST', headers: {'Content-Type':'application/json'},
+              body: JSON.stringify({ op: 'delete', args: { name: p.name } }),
+            });
+            reloadScene();
+            refreshFeatureTree();
+          }
+        });
+      });
+      list.appendChild(row);
+    }
+  } catch (e) { console.warn('feature tree refresh failed', e); }
+}
+document.getElementById('ftrefresh').addEventListener('click', refreshFeatureTree);
+// initial load
+setTimeout(refreshFeatureTree, 500);
+
 // ----- knowledge tab -----
 function _escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c =>
@@ -1270,6 +1507,7 @@ async function send() {
     if (active === 'parts') refreshParts();
     if (active === 'bom') refreshBOM();
     if (active === 'know') refreshKnowledge();
+    refreshFeatureTree();
   } catch (e) {
     addMsg('bot', 'error', String(e));
   } finally {
@@ -1297,6 +1535,7 @@ document.getElementById('clearScene').addEventListener('click', async () => {
     addMsg('system', 'cad', 'scene cleared');
     reloadScene();
     refreshSketches(); refreshAssemblies(); refreshParts(); refreshBOM();
+    refreshFeatureTree();
   } catch (e) { addMsg('bot', 'error', String(e)); }
 });
 

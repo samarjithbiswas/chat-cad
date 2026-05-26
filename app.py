@@ -350,6 +350,34 @@ def tools_list():
     return jsonify({"tools": TOOLS})
 
 
+@app.route("/fea/run", methods=["POST"])
+def fea_run():
+    """Run a basic linear-elastic cantilever FEA on the named part using
+    gmsh + scikit-fem. Returns max stress and displacement.
+    """
+    data = request.get_json(force=True)
+    part = (data.get("part") or "").strip()
+    load_N = float(data.get("load_N", 100.0))
+    axis = (data.get("axis") or "Z").strip().upper()
+    if not part:
+        return jsonify({"error": "part is required"}), 400
+    with _lock:
+        if part not in engine.parts:
+            return jsonify({"error": f"no part '{part}'"}), 404
+        material = engine.materials.material_of(part) if hasattr(engine, "materials") else "default"
+        try:
+            stl_path = engine.export_part_stl(part)
+        except Exception as e:
+            return jsonify({"error": f"could not export STL for FEA: {e}"}), 500
+    # Run FEA outside the lock — solver can take a few seconds
+    try:
+        from fea import run_fea
+        result = run_fea(stl_path, load_N=load_N, axis=axis, material=material)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/ollama/status")
 def ollama_status():
     """Quick health check used by the UI to show Ollama availability."""
