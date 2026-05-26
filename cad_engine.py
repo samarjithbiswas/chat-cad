@@ -14,6 +14,7 @@ import cadquery as cq
 
 from sketch_engine import SketchEngine
 from assembly_engine import AssemblyEngine
+from library import LibraryEngine
 
 
 class CadEngine:
@@ -24,6 +25,7 @@ class CadEngine:
         self.history: list[dict[str, cq.Workplane]] = []
         self.sketches = SketchEngine(self.parts)
         self.assemblies = AssemblyEngine(self.parts)
+        self.library = LibraryEngine(self)
 
     # ---------- internal ----------
     def _snapshot(self) -> None:
@@ -403,6 +405,12 @@ def dispatch(engine: CadEngine, op: str, args: dict[str, Any]) -> str:
         fn = getattr(engine.sketches, sub, None)
         if fn is None or sub.startswith("_"):
             raise ValueError(f"unknown sketch op '{op}'")
+        return fn(**args)
+    if op.startswith("lib_"):
+        sub = op[len("lib_"):]
+        fn = getattr(engine.library, sub, None)
+        if fn is None or sub.startswith("_"):
+            raise ValueError(f"unknown library op '{op}'")
         return fn(**args)
     if op.startswith("asm_"):
         sub = op[len("asm_"):]

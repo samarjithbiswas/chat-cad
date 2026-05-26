@@ -463,6 +463,58 @@ TOOLS = [
      "input_schema": {"type": "object",
         "properties": {"assembly": {"type": "string"}, "filename": {"type": "string"}},
         "required": ["assembly"]}},
+    # ---------------- parametric components library ---------------- #
+    {"name": "lib_bolt",
+     "description": "M-series hex-head bolt. spec like 'M6', length in mm.",
+     "input_schema": {"type": "object",
+        "properties": {"name": {"type": "string"}, "spec": {"type": "string"},
+                       "length": {"type": "number"},
+                       "x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}},
+        "required": ["name", "spec", "length"]}},
+    {"name": "lib_nut",
+     "description": "M-series hex nut.",
+     "input_schema": {"type": "object",
+        "properties": {"name": {"type": "string"}, "spec": {"type": "string"},
+                       "x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}},
+        "required": ["name", "spec"]}},
+    {"name": "lib_washer",
+     "description": "M-series flat washer.",
+     "input_schema": {"type": "object",
+        "properties": {"name": {"type": "string"}, "spec": {"type": "string"},
+                       "x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}},
+        "required": ["name", "spec"]}},
+    {"name": "lib_gear",
+     "description": "Visual spur gear. module = pitch_diameter / teeth. bore is optional through-hole.",
+     "input_schema": {"type": "object",
+        "properties": {"name": {"type": "string"},
+                       "module": {"type": "number"}, "teeth": {"type": "integer"},
+                       "width": {"type": "number"}, "bore": {"type": "number"},
+                       "x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}},
+        "required": ["name", "module", "teeth", "width"]}},
+    {"name": "lib_spring",
+     "description": "Helical compression spring.",
+     "input_schema": {"type": "object",
+        "properties": {"name": {"type": "string"},
+                       "wire_d": {"type": "number"}, "coil_d": {"type": "number"},
+                       "pitch": {"type": "number"}, "turns": {"type": "number"},
+                       "x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}},
+        "required": ["name", "wire_d", "coil_d", "pitch", "turns"]}},
+    {"name": "lib_slot",
+     "description": "Stadium-shaped slot extruded along Z.",
+     "input_schema": {"type": "object",
+        "properties": {"name": {"type": "string"},
+                       "length": {"type": "number"}, "width": {"type": "number"},
+                       "depth": {"type": "number"},
+                       "x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}},
+        "required": ["name", "length", "width", "depth"]}},
+    {"name": "lib_key",
+     "description": "Rectangular machine key (DIN 6885 shape).",
+     "input_schema": {"type": "object",
+        "properties": {"name": {"type": "string"},
+                       "length": {"type": "number"}, "width": {"type": "number"},
+                       "thickness": {"type": "number"},
+                       "x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}},
+        "required": ["name", "length", "width", "thickness"]}},
     # ---------------- advanced 3D ops ---------------- #
     {"name": "sweep",
      "description": "Sweep a 2D profile sketch along a 2D path sketch into a 3D part.",
@@ -544,6 +596,11 @@ You have three families of tools:
    and thread (external 60-deg triangular thread along a helix; union it
    onto a cylinder you create to make a screw).
 
+4. Parametric components library (lib_bolt, lib_nut, lib_washer, lib_gear,
+   lib_spring, lib_slot, lib_key). Use these when the user asks for a
+   standard mechanical component instead of building one from primitives.
+   M-specs accept M2, M2.5, M3, M4, M5, M6, M8, M10, M12, M16, M20.
+
 Rules:
 - Work in millimetres unless the user says otherwise.
 - Snake_case names. Reuse names only to overwrite intentionally.
@@ -614,6 +671,15 @@ _HELP = """commands (fallback parser, used when no Claude API key is set):
   mirror <out> <src> [XY|XZ|YZ]
   lpat  <prefix> <src> <dx> <dy> <dz> <count>
   ppat  <prefix> <src> <count> [total_angle] [axis]
+
+ Mechanical components:
+  bolt   <name> <M-spec> <length> [x y z]      e.g.  bolt b1 M6 30
+  nut    <name> <M-spec>          [x y z]      e.g.  nut n1 M6
+  washer <name> <M-spec>          [x y z]      e.g.  washer w1 M6
+  gear   <name> <module> <teeth> <width> [bore] [x y z]
+  spring <name> <wire_d> <coil_d> <pitch> <turns> [x y z]
+  slot   <name> <length> <width> <depth> [x y z]
+  key    <name> <length> <width> <thickness>   [x y z]
   move <name> <dx> <dy> <dz>
   rot  <name> <X|Y|Z> <deg>
   union <out> <a> <b>
@@ -800,6 +866,42 @@ def run_parser(engine: CadEngine, line: str) -> str:
             return _parse_sketch(engine, a)
         if cmd in ("asm", "assembly"):
             return _parse_asm(engine, a)
+        if cmd == "bolt":
+            name, spec, length, *rest = a
+            xyz = [_f(v) for v in rest] + [0, 0, 0]
+            return engine.library.bolt(name, spec, _f(length),
+                                       xyz[0], xyz[1], xyz[2])
+        if cmd == "nut":
+            name, spec, *rest = a
+            xyz = [_f(v) for v in rest] + [0, 0, 0]
+            return engine.library.nut(name, spec, xyz[0], xyz[1], xyz[2])
+        if cmd == "washer":
+            name, spec, *rest = a
+            xyz = [_f(v) for v in rest] + [0, 0, 0]
+            return engine.library.washer(name, spec, xyz[0], xyz[1], xyz[2])
+        if cmd == "gear":
+            # gear <name> <module> <teeth> <width> [bore] [x y z]
+            name, module, teeth, width, *rest = a
+            bore = _f(rest[0]) if len(rest) > 0 else 0
+            xyz = [_f(v) for v in rest[1:]] + [0, 0, 0]
+            return engine.library.gear(name, _f(module), int(teeth), _f(width),
+                                       bore, xyz[0], xyz[1], xyz[2])
+        if cmd == "spring":
+            name, wire_d, coil_d, pitch, turns, *rest = a
+            xyz = [_f(v) for v in rest] + [0, 0, 0]
+            return engine.library.spring(name, _f(wire_d), _f(coil_d),
+                                         _f(pitch), _f(turns),
+                                         xyz[0], xyz[1], xyz[2])
+        if cmd == "slot":
+            name, length, width, depth, *rest = a
+            xyz = [_f(v) for v in rest] + [0, 0, 0]
+            return engine.library.slot(name, _f(length), _f(width), _f(depth),
+                                       xyz[0], xyz[1], xyz[2])
+        if cmd == "key":
+            name, length, width, thickness, *rest = a
+            xyz = [_f(v) for v in rest] + [0, 0, 0]
+            return engine.library.key(name, _f(length), _f(width),
+                                      _f(thickness), xyz[0], xyz[1], xyz[2])
         if cmd == "box":
             name, L, W, H, *rest = a
             xyz = [_f(v) for v in rest] + [0, 0, 0]
