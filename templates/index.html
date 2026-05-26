@@ -138,6 +138,29 @@
   .bomtable td.num { text-align: right; }
   .swatch { display: inline-block; width: 16px; height: 16px; border-radius: 3px;
             border: 1px solid var(--border); vertical-align: middle; }
+
+  /* View cube — sits in top-right of the 3D canvas */
+  #viewcube { position: absolute; right: 14px; top: 60px; width: 92px; height: 92px;
+              user-select: none; pointer-events: auto; z-index: 5; }
+
+  /* Selected-part property card — floats over canvas, bottom-right */
+  #propcard { position: absolute; right: 14px; bottom: 28px; width: 260px;
+              background: var(--bg-2); border: 1px solid var(--border);
+              border-radius: 8px; padding: 12px 14px; font-size: 12px;
+              font-family: ui-monospace, monospace; color: var(--text);
+              box-shadow: 0 4px 14px var(--shadow-overlay);
+              z-index: 5; display: none; }
+  #propcard.visible { display: block; }
+  #propcard h4 { margin: 0 0 6px; font-size: 13px; font-weight: 700;
+                 font-family: ui-sans-serif, system-ui, sans-serif; }
+  #propcard .row { display: flex; justify-content: space-between;
+                   margin: 2px 0; opacity: 0.85; }
+  #propcard .row b { color: var(--text); font-weight: 600; }
+  #propcard .swatch-row { display: flex; align-items: center; gap: 6px;
+                         margin: 4px 0 8px; }
+  #propcard .close { float: right; cursor: pointer; opacity: 0.6;
+                     padding: 0 4px; }
+  #propcard .close:hover { opacity: 1; }
 </style>
 </head>
 <body>
@@ -234,6 +257,18 @@
         <span style="font-size:11px;opacity:0.55">drag = rotate · right-drag = pan · wheel = zoom</span>
       </div>
       <canvas id="canvas"></canvas>
+      <canvas id="viewcube" width="184" height="184"></canvas>
+      <div id="propcard">
+        <span class="close" id="propcardClose">×</span>
+        <h4 id="propName">part</h4>
+        <div class="swatch-row"><span class="swatch" id="propSwatch"></span>
+          <span id="propMat" style="opacity:0.7">default material</span></div>
+        <div class="row"><span>volume</span><b id="propVol">—</b></div>
+        <div class="row"><span>mass</span><b id="propMass">—</b></div>
+        <div class="row"><span>bbox X</span><b id="propBX">—</b></div>
+        <div class="row"><span>bbox Y</span><b id="propBY">—</b></div>
+        <div class="row"><span>bbox Z</span><b id="propBZ">—</b></div>
+      </div>
       <div id="status">scene empty</div>
     </div>
 
@@ -529,7 +564,161 @@ function resize() {
 }
 window.addEventListener('resize', resize); resize();
 
-function animate() { controls.update(); renderer.render(scene, camera); requestAnimationFrame(animate); }
+// ----- studio environment lighting (IBL) -----
+// Procedural gradient envmap so metallic materials reflect realistically
+// without needing an HDR file download.
+{
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  const envScene = new THREE.Scene();
+  // build a simple sky/ground sphere as the env source
+  const envGeo = new THREE.SphereGeometry(50, 32, 16);
+  const envMat = new THREE.ShaderMaterial({
+    uniforms: { topColor: { value: new THREE.Color(0xeef3fa) },
+                botColor: { value: new THREE.Color(0x3a4250) } },
+    vertexShader: 'varying vec3 vN; void main(){vN=normalize(position);' +
+                  'gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}',
+    fragmentShader: 'uniform vec3 topColor,botColor; varying vec3 vN;' +
+                    'void main(){float t=vN.y*0.5+0.5;' +
+                    'gl_FragColor=vec4(mix(botColor,topColor,t),1.);}',
+    side: THREE.BackSide,
+  });
+  envScene.add(new THREE.Mesh(envGeo, envMat));
+  const envTex = pmrem.fromScene(envScene, 0.04).texture;
+  scene.environment = envTex;
+}
+
+// ----- view cube (top-right corner of canvas) -----
+const vcCanvas = document.getElementById('viewcube');
+const vcRenderer = new THREE.WebGLRenderer({ canvas: vcCanvas, antialias: true, alpha: true });
+vcRenderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+vcRenderer.setClearColor(0x000000, 0);
+const vcScene = new THREE.Scene();
+const vcCamera = new THREE.PerspectiveCamera(40, 1, 0.1, 50);
+vcCamera.up.set(0, 0, 1);
+const vcCube = new THREE.Mesh(
+  new THREE.BoxGeometry(1.5, 1.5, 1.5),
+  [   // 6 face materials with labels via canvas textures
+    'RIGHT', 'LEFT', 'BACK', 'FRONT', 'TOP', 'BOTTOM',
+  ].map(label => {
+    const tex = (() => {
+      const c = document.createElement('canvas'); c.width = c.height = 128;
+      const g = c.getContext('2d');
+      g.fillStyle = '#e8ecf2'; g.fillRect(0, 0, 128, 128);
+      g.strokeStyle = '#2a2f37'; g.lineWidth = 4; g.strokeRect(2, 2, 124, 124);
+      g.fillStyle = '#1a1d22'; g.font = 'bold 22px ui-sans-serif, sans-serif';
+      g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.fillText(label, 64, 64);
+      return new THREE.CanvasTexture(c);
+    })();
+    return new THREE.MeshBasicMaterial({ map: tex });
+  })
+);
+vcScene.add(vcCube);
+const vcEdges = new THREE.LineSegments(
+  new THREE.EdgesGeometry(vcCube.geometry),
+  new THREE.LineBasicMaterial({ color: 0x2a2f37, linewidth: 1 })
+);
+vcScene.add(vcEdges);
+
+function renderViewCube() {
+  // place the cube so its orientation mirrors the main camera's view direction
+  const dir = new THREE.Vector3();
+  camera.getWorldDirection(dir);
+  vcCamera.position.copy(dir.clone().multiplyScalar(-4.5));
+  vcCamera.up.copy(camera.up);
+  vcCamera.lookAt(0, 0, 0);
+  vcRenderer.render(vcScene, vcCamera);
+}
+
+// Click on view cube → snap camera to canonical view
+vcCanvas.addEventListener('click', e => {
+  const r = vcCanvas.getBoundingClientRect();
+  const x = ((e.clientX - r.left) / r.width) * 2 - 1;
+  const y = -((e.clientY - r.top) / r.height) * 2 + 1;
+  const raycaster = new THREE.Raycaster();
+  raycaster.setFromCamera({ x, y }, vcCamera);
+  const hit = raycaster.intersectObject(vcCube)[0];
+  if (!hit) return;
+  // hit.face.normal is in local space; convert to world (cube is at origin so same)
+  const n = hit.face.normal.clone().applyQuaternion(vcCube.quaternion);
+  const target = controls.target.clone();
+  const dist = camera.position.distanceTo(target);
+  camera.position.copy(target).add(n.multiplyScalar(dist));
+  // pick up vector: prefer +Z unless we're looking along Z
+  if (Math.abs(n.z) > 0.9) camera.up.set(0, 1, 0);
+  else camera.up.set(0, 0, 1);
+  camera.lookAt(target);
+  controls.update();
+});
+
+// ----- click-to-select on main canvas -----
+const _raycaster = new THREE.Raycaster();
+let _selected = null;
+const propcard = document.getElementById('propcard');
+const propName = document.getElementById('propName');
+const propMat  = document.getElementById('propMat');
+const propSwatch = document.getElementById('propSwatch');
+const propVol  = document.getElementById('propVol');
+const propMass = document.getElementById('propMass');
+const propBX = document.getElementById('propBX');
+const propBY = document.getElementById('propBY');
+const propBZ = document.getElementById('propBZ');
+
+function clearSelection() {
+  if (_selected && _selected.material) {
+    _selected.material.emissive = new THREE.Color(0x000000);
+    _selected.material.emissiveIntensity = 0;
+  }
+  _selected = null;
+  propcard.classList.remove('visible');
+}
+document.getElementById('propcardClose').addEventListener('click', clearSelection);
+
+async function onCanvasPick(ev) {
+  const r = canvas.getBoundingClientRect();
+  const x = ((ev.clientX - r.left) / r.width) * 2 - 1;
+  const y = -((ev.clientY - r.top) / r.height) * 2 + 1;
+  _raycaster.setFromCamera({ x, y }, camera);
+  const meshes = partGroup.children.filter(o => o.isMesh);
+  const hit = _raycaster.intersectObjects(meshes, false)[0];
+  if (!hit) { clearSelection(); return; }
+  if (_selected && _selected !== hit.object) {
+    _selected.material.emissive = new THREE.Color(0x000000);
+    _selected.material.emissiveIntensity = 0;
+  }
+  _selected = hit.object;
+  _selected.material.emissive = new THREE.Color(0x2c5fb3);
+  _selected.material.emissiveIntensity = 0.25;
+  // Fetch properties: volume + bbox + material via the backend
+  try {
+    const vr = await fetch('/part/' + encodeURIComponent(_selected.name) + '/volume');
+    const vd = vr.ok ? await vr.json() : {};
+    const manifest = await (await fetch('/scene/manifest')).json();
+    const entry = manifest.parts.find(p => p.name === _selected.name);
+    propName.textContent = _selected.name;
+    propSwatch.style.background = entry?.color || '#888';
+    propMat.textContent = '(material via mat assign)';
+    propVol.textContent = (vd.volume_mm3 || 0).toFixed(2) + ' mm³';
+    propMass.textContent = ((vd.volume_mm3 || 0) * 1e-3).toFixed(3) + ' g (ρ=1)';
+    if (vd.bbox) {
+      propBX.textContent = (vd.bbox[3] - vd.bbox[0]).toFixed(2) + ' mm';
+      propBY.textContent = (vd.bbox[4] - vd.bbox[1]).toFixed(2) + ' mm';
+      propBZ.textContent = (vd.bbox[5] - vd.bbox[2]).toFixed(2) + ' mm';
+    }
+    propcard.classList.add('visible');
+  } catch (e) { /* silent */ }
+}
+canvas.addEventListener('click', e => {
+  if (typeof measureMode !== 'undefined' && measureMode) return;  // measure tool active
+  onCanvasPick(e);
+});
+
+function animate() {
+  controls.update();
+  renderer.render(scene, camera);
+  renderViewCube();
+  requestAnimationFrame(animate);
+}
 animate();
 
 const loader = new STLLoader();
