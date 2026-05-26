@@ -1,163 +1,176 @@
----
-title: Chat CAD
-emoji: 🧱
-colorFrom: blue
-colorTo: gray
-sdk: docker
-app_port: 7860
-pinned: false
----
-
 # Chat CAD
 
-A chat-driven CAD tool with a real B-rep kernel (CadQuery / OpenCascade),
-a parametric 2D sketcher with constraint solver, and a placement-based
-assembly system. Talk to it in plain English (via Claude) or drive it with
-a built-in command parser; export STEP / STL of what you built.
+**Chat-driven mechanical CAD with a real B-rep kernel and a multi-agent design loop.**
+Describe a part in plain English or with terse typed commands; get an exportable
+STEP / STL / engineering-drawing PDF in seconds. Free local LLM support.
+Real FEA. Windows installer.
+
+[Download installer (Windows)](https://github.com/Samarjithbiswas/chat-cad/releases/download/v0.1.0/ChatCAD_Setup.exe)
+· [Pitch deck](./PITCH.md)
+· [Architecture](#architecture)
+· [Demo script](#demo-script-90-second-loop)
+
+---
+
+## In One Picture
 
 ```
-chat_cad/
-  app.py              Flask server + browser launcher
-  cad_engine.py       3D parts: primitives, booleans, fillets, ...
-  sketch_engine.py    2D sketches + scipy-based constraint solver + SVG view
-  assembly_engine.py  Named-component assemblies built on cq.Assembly
-  llm.py              Claude tool-use loop  +  regex parser fallback
-  templates/
-    index.html        Chat UI + Three.js viewer + sketch / assembly tabs
-  output/             Generated STL / STEP files
-  requirements.txt
+Chat / natural language
+       │
+       ▼
+┌───────────────────────────────────────────────────────────────┐
+│  Planner ─► Modeler ─► Visual Critic ─► DFM Critic            │
+│      (5-agent design loop with Claude vision / Gemini)         │
+└───────────────────────────────────────────────────────────────┘
+       │
+       ▼
+CadQuery / OpenCascade B-rep kernel
+       │
+       ▼
+SolidWorks-style viewport: feature tree · gizmos · view cube
+       · right-click menu · 19 PBR material presets · IBL
+       │
+       ▼
+Export: STEP · STL · 4-view PDF · STEP for assemblies
+Simulate: linear-elastic FEA · steady-state thermal (gmsh + scikit-fem)
 ```
 
-## Install
+---
+
+## Why Chat CAD
+
+- **Real B-rep, not mesh tris.** Hand the output to a CAM package or machinist.
+- **5-agent design loop** — Planner / Modeler / Visual / DFM / Standards critics.
+  Catches "wall too thin" before the user ships, not after.
+- **Bring-your-own LLM.** Anthropic, Google Gemini, local Ollama (offline,
+  free), or in-browser WebLLM (no install, no key, ~600 MB one-time download).
+- **140+ chat-callable operations** spanning primitives, booleans, sketches
+  with constraint solver, assemblies with mate solving, sheet metal,
+  structural profiles (T-slot / I-beam / angle iron / C-channel), library
+  fasteners (M-bolt + thread, nut, washer, bearing, hinge, pulley, gear,
+  spring), aerospace mockups (turbine wheel, propeller, compressor stage,
+  combustor, nozzle, NACA airfoil, honeycomb), and one-command complex
+  assemblies (`turbojet`, `turbofan`, `bolt_stack`, `gear_train`, `engine`).
+- **Real FEA on the same geometry** — most AI CAD tools stop at "looks like
+  a part." Chat CAD will mesh and solve it (linear-elastic + thermal).
+- **Engineering drawings to PDF** with 4-view layout + dimension arrows +
+  title block + mass-properties summary.
+- **Knowledge layer** — your saved notes ("we always use M4 bolts", "wall
+  thickness ≥ 3 mm for FDM") get retrieved into every agent prompt via
+  TF-IDF RAG.
+
+---
+
+## Quick Start
+
+### Windows (recommended)
+
+1. Download [`ChatCAD_Setup.exe`](https://github.com/Samarjithbiswas/chat-cad/releases/download/v0.1.0/ChatCAD_Setup.exe)
+2. Double-click. Wait ~5 min for the one-time Miniforge + CadQuery install (~1.5 GB).
+3. Launch via the Desktop shortcut. Your browser opens to `http://127.0.0.1:5000/`.
+
+### Manual / dev
 
 ```powershell
-# option A: conda (recommended on Windows)
 conda create -n chatcad python=3.11 -y
 conda activate chatcad
 conda install -c conda-forge cadquery -y
-pip install flask anthropic numpy scipy
-
-# option B: pip only (slower; cadquery wheel is large)
-python -m venv .venv
-.venv\Scripts\activate
 pip install -r requirements.txt
-```
-
-## Run
-
-```powershell
 python app.py
 ```
 
-Opens http://127.0.0.1:5000 in your browser. Paste an Anthropic API key in
-the settings panel (or set `ANTHROPIC_API_KEY` before launching) to enable
-the Claude path; otherwise the parser handles requests.
+### Pick an LLM (optional)
 
-## Three workflows
+| Backend | How |
+|---|---|
+| **Anthropic Claude** (best quality) | Paste `sk-ant-...` key in settings → ~0.5¢/part |
+| **Google Gemini** (free tier) | Paste `AIza...` key from aistudio.google.com |
+| **Local Ollama** (offline, free) | Install Ollama + `ollama pull qwen2.5` |
+| **In-browser WebLLM** (no install, no key) | Pick a `browser:` model from the dropdown |
+| **None — typed-command mode** | Works out of the box, no LLM required |
 
-### 1. Direct 3D primitives (parser or chat)
+---
 
-```
-box base 40 40 5
-cyl post 5 30 0 0 15
-union body base post
-fillet body 1
-export step knob.step
-```
+## Demo Script (90-second loop)
 
-### 2. Parametric sketches → extrude / revolve
-
-A sketch is a named container of points, lines, circles, and rectangles
-with explicit constraints (horizontal, vertical, distance, parallel,
-perpendicular, equal, radius, angle). After you add constraints, run
-`sk solve <name>`; the solver minimises constraint residuals with
-`scipy.optimize.least_squares`. Then extrude or revolve to make a part.
-
-```
-sk new profile XY
-sk rect  profile bracket 0 0 40 20
-sk circle profile hole 30 10 0    # placeholder radius
-sk rad   profile hole 4           # constrain radius
-sk solve profile
-sk ext   profile bracket_3d 5
+```text
+1. Launch → clean professional viewport
+2. Type:   bolt_stack demo M8 15 60
+              → plate + 2 washers + threaded M8 bolt + hex nut appears
+3. Right-click the bolt → Mirror about XY → second bolt
+4. Render tab → Polished steel → Apply to all
+5. File tab → Drawing PDF → 4-view engineering drawing downloads
+6. Simulate tab → click the plate → Run FEA → real stress in 8 seconds
+7. Chat:   "turbojet engine, 200 mm fan, 600 mm length" (Design Agent mode)
+              → 19-sub-part realistic axial-flow turbojet builds itself,
+                 visual critic checks each milestone
+8. Render tab → Brushed aluminum + Outdoor sky environment → catalog shot
 ```
 
-Open the **Sketches** tab to see an SVG preview with point names and the
-constraint manifest. Closed wires are extrudable; open chains are skipped.
+What competitors take **4–8 hours** for, this loop does in **~2 minutes**.
 
-### 3. Assemblies with placements
+---
 
-Components reference a 3D part plus a (location, rotation). After `asm solve`
-the combined compound appears in the 3D scene as `_asm_<name>` and can be
-exported with `asm export <name>`.
+## Architecture
 
 ```
-box left  10 10 30
-box right 10 10 30
-asm new wall
-asm add wall l left  0  0 0
-asm add wall r right 30 0 0
-asm solve wall
-asm export wall wall.step
+app.py
+├── Flask server (chat, scene, drawing, FEA endpoints)
+├── cad_engine.py — CadEngine wrapper around CadQuery
+│   ├── sketch_engine.py    — 2D sketcher + scipy constraint solver
+│   ├── assembly_engine.py  — cq.Assembly with mate solver
+│   ├── library.py          — fasteners, gears, springs, bearings, aerospace
+│   ├── materials.py        — density table + mass-properties
+│   ├── profiles.py         — T-slot, I-beam, angle, tube, channel
+│   ├── sheet_metal.py      — sheet, L-bend, U-bend, box, flange
+│   ├── step_io.py          — STEP import
+│   ├── drawings.py         — 4-view PDF with dimensions
+│   ├── knowledge.py        — TF-IDF RAG over user notes
+│   └── assemblies_recipes.py — turbojet, turbofan, bolt_stack, gear_train
+├── llm.py        — Claude tool schema + tool-use loop, regex parser fallback
+├── llm_gemini.py — Google Gemini backend
+├── llm_ollama.py — local Ollama backend with parser-fallback
+├── agents.py     — Design Agent: planner + modeler + visual/DFM/standards critics
+├── fea.py + fea_worker.py — gmsh + scikit-fem subprocess wrapper
+└── templates/index.html — Three.js viewport (view cube, gizmos, right-click,
+                           PBR + IBL, 19 material presets, ribbon toolbar)
 ```
 
-Mate constraints (`asm mate <Plane|Axis|Point|PointInPlane> <a_sel> <b_sel>`)
-are **recorded but not solved** in v1 — solver-driven mating needs a robust
-topological selector layer and is the next obvious upgrade.
+---
 
-## Available operations
+## Pricing (intent)
 
-### 3D parts (top-level)
-Primitives: `box`, `cylinder`, `sphere`, `cone`, `torus`, `wedge`, `polygon`,
-`text` (extruded 3D text).
-Transforms: `translate`, `rotate`, `scale`, `mirror`.
-Booleans: `union`, `cut`, `intersect`.
-Features: `fillet`, `chamfer`, `shell`, `hole`.
-Patterns: `lpat` (linear), `ppat` (polar) — stamp N copies of a part.
-Bookkeeping: `delete`, `list`, `clear`, `undo`, `export step|stl`.
+| Tier | Price | What you get |
+|---|---|---|
+| **Open source** | $0 | Full feature set, runs locally, MIT license |
+| **Pro** (planned) | $49/month | Hosted instance, priority support, custom knowledge base |
+| **Team** (planned) | $499/month | Shared knowledge base, multi-user sessions, audit logs |
+| **Enterprise** (planned) | Custom | On-premise deployment, SAML/SSO, fine-tuned model for your domain |
 
-### 2D sketcher (`sk <sub>` or `sketch_*` tools)
-Entities: `pt`, `line`, `circle`, `rect`, `fix`.
-Constraints: `coinc`, `h`, `v`, `dist`, `distx`, `disty`, `par`, `perp`,
-`eq`, `rad`, `ang`.
-Lifecycle: `new`, `solve`, `ext`, `rev`, `info`, `list`, `del`.
+---
 
-### Assemblies (`asm <sub>` or `asm_*` tools)
-Structure: `new`, `add`, `move`, `rot`, `rm`, `mate`, `solve`,
-`info`, `list`, `del`, `export`.
+## What This Is And Isn't
 
-Type `help` in the chat for the full parser cheat-sheet.
+**Is:** A credible chat-driven CAD tool with real B-rep output, real FEA,
+real engineering drawings. Comparable in spirit to KittyCAD's text-to-CAD
+demo but with broader operation coverage and a multi-agent design loop.
 
-## Viewer
+**Isn't:** A SolidWorks / Onshape / Fusion 360 replacement. Those tools
+have 25–35 years of customer-validated edge cases baked into their
+kernels. Chat CAD doesn't have that history. Chat CAD's wedge is
+**speed of getting to a serviceable part from a chat prompt**, not
+authoring 50,000-part assemblies with full tolerance stack-ups.
 
-The 3D viewport is set up like a CAD viewport rather than a generic Three.js
-demo:
+**Will be:** Whatever the first 10 paying customers tell us it needs to be.
 
-- **Z is up**, matching CadQuery / SolidWorks conventions.
-- Each part is rendered as its own mesh with a deterministic colour derived
-  from its name, so unioned vs. distinct parts read clearly.
-- Black **edge outlines** (dihedral angle > 25°) give the SolidWorks-style
-  feature-edge look.
-- **3-point studio lighting** (key + fill + rim) plus a hemisphere light for
-  ambient sky/ground fill — Blender-ish viewport shading.
-- **Soft ground shadow** under the bounding box, repositioned each reload.
-- **Auto-fit camera** on first load; click *Fit view* to reframe later.
+---
 
-## What this is and isn't
+## License
 
-This is a small build to give Claude a CAD body to act through. The kernel
-under the hood is the same OpenCascade that drives FreeCAD / Onshape, so
-the parts and assemblies you build are real B-reps you can hand to a slicer
-or CAM package.
+MIT. See [LICENSE](LICENSE).
 
-Honest limits versus SolidWorks:
-- Sketcher has no on-canvas drag editing yet (sketches are edited by chat).
-- Solver handles the common 80% but does not detect over-constrained
-  systems gracefully — if it doesn't converge, remove a constraint.
-- Assemblies position parts but do not yet solve mate equations
-  (face-on-face, axis-coincident).
-- No history tree edit, no drawings, no rendering / materials beyond Three.js.
+---
 
-The next obvious upgrades, in order, are: (1) on-canvas sketch dragging
-that re-solves live, (2) a topological selector layer so mate constraints
-can actually be solved, (3) a feature tree with edit-by-reference.
+## Built by [Samarjith Biswas](https://samarjithbiswas.com)
+
+Mechanical engineering · acoustic metamaterials · agentic AI for design.
