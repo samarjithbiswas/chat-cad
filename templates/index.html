@@ -139,6 +139,18 @@
   .swatch { display: inline-block; width: 16px; height: 16px; border-radius: 3px;
             border: 1px solid var(--border); vertical-align: middle; }
 
+  /* Ribbon toolbar tabs (above the 3D-pane toolbar) */
+  #ribbontabs { display: flex; background: var(--bg-2); border-bottom: 1px solid var(--border); }
+  .ribtab { padding: 6px 14px; font-size: 11px; letter-spacing: 0.03em;
+            text-transform: uppercase; cursor: pointer; color: var(--text-dim);
+            border-right: 1px solid var(--border); user-select: none; }
+  .ribtab.active { background: var(--bg-3); color: var(--text); font-weight: 600;
+                   box-shadow: inset 0 -2px 0 var(--accent); }
+  .ribtab:hover:not(.active) { background: var(--bg-3); color: var(--text); }
+  /* Hide all ribbon-group buttons by default; show the active group */
+  #toolbar [data-rib] { display: none; }
+  #toolbar [data-rib].active { display: inline-flex; align-items: center; gap: 6px; }
+
   /* View cube — sits in top-right of the 3D canvas */
   #viewcube { position: absolute; right: 14px; top: 60px; width: 92px; height: 92px;
               user-select: none; pointer-events: auto; z-index: 5; }
@@ -269,16 +281,22 @@
     </div>
 
     <div id="pane3d" class="pane active">
+      <div id="ribbontabs">
+        <div class="ribtab active" data-ribtab="file">File</div>
+        <div class="ribtab"        data-ribtab="view">View</div>
+        <div class="ribtab"        data-ribtab="edit">Edit</div>
+        <div class="ribtab"        data-ribtab="sim">Simulate</div>
+      </div>
       <div id="toolbar">
-        <button id="reset">New project</button>
+        <span data-rib="file" class="active"><button id="reset">New project</button>
         <button id="clearScene" title="Clear all parts (keeps chat history)">Clear scene</button>
-        <button id="fitBtn">Fit view</button>
         <button id="exportStl">Export STL</button>
         <button id="exportStep">Export STEP</button>
         <button id="drawingPdf">Drawing PDF</button>
         <button id="importStepBtn">Import STEP</button>
-        <input id="importStepFile" type="file" accept=".step,.stp" style="display:none" />
-        <span style="width:1px;height:18px;background:#2a2f37;margin:0 4px"></span>
+        <input id="importStepFile" type="file" accept=".step,.stp" style="display:none" /></span>
+
+        <span data-rib="view"><button id="fitBtn">Fit view</button>
         <label><input type="checkbox" id="secEnable" /> Section</label>
         <select id="secAxis">
           <option value="X">X</option>
@@ -287,15 +305,18 @@
         </select>
         <input type="range" id="secSlider" min="-200" max="200" step="0.5" value="0" style="width:140px" />
         <span id="secVal" style="font-size:11px;opacity:0.7;min-width:60px">0.00 mm</span>
-        <span style="width:1px;height:18px;background:#2a2f37;margin:0 4px"></span>
-        <button id="measureBtn">Measure</button>
+        <button id="explodeBtn" title="Spread parts outward for an exploded view">Explode</button>
+        <button id="unexplodeBtn" title="Return parts to their real positions">Collapse</button></span>
+
+        <span data-rib="edit"><button id="measureBtn">Measure</button>
         <button id="measureClear" title="Clear distance markers (does NOT clear parts)">Clear measure</button>
-        <span style="width:1px;height:18px;background:var(--border);margin:0 4px"></span>
         <button id="gizmoMove" title="Drag selected part to move">Move</button>
         <button id="gizmoRot"  title="Drag rings to rotate selected part">Rotate</button>
-        <button id="gizmoOff"  title="Hide gizmo">Off</button>
-        <span style="width:1px;height:18px;background:var(--border);margin:0 4px"></span>
-        <button id="feaRun"    title="Run FEA on selected part">Simulate (FEA)</button>
+        <button id="gizmoOff"  title="Hide gizmo">Off</button></span>
+
+        <span data-rib="sim"><button id="feaRun"    title="Run FEA on selected part">Run FEA (stress)</button>
+        <button id="thermalRun" title="Run heat-transfer / thermal analysis">Run thermal</button></span>
+        <!-- spacer + tip moved to bottom by inline style below -->
         <span style="flex:1"></span>
         <span style="font-size:11px;opacity:0.55">drag = rotate · right-drag = pan · wheel = zoom</span>
       </div>
@@ -832,6 +853,78 @@ document.getElementById('gizmoRot').addEventListener('click', () => {
 });
 document.getElementById('gizmoOff').addEventListener('click', () => {
   gizmo.detach(); scene.remove(gizmo);
+});
+
+// ----- ribbon tabs -----
+document.querySelectorAll('.ribtab').forEach(t => {
+  t.addEventListener('click', () => {
+    document.querySelectorAll('.ribtab').forEach(x => x.classList.remove('active'));
+    document.querySelectorAll('#toolbar [data-rib]').forEach(x => x.classList.remove('active'));
+    t.classList.add('active');
+    document.querySelectorAll(`#toolbar [data-rib="${t.dataset.ribtab}"]`)
+      .forEach(g => g.classList.add('active'));
+  });
+});
+
+// ----- exploded view -----
+// Records each mesh's original position when "Explode" is clicked, moves each
+// outward from the scene centroid by a factor. "Collapse" restores positions.
+// Pure-viewport effect; doesn't touch CadQuery geometry.
+let _explodeSaved = null;
+document.getElementById('explodeBtn').addEventListener('click', () => {
+  const meshes = partGroup.children.filter(o => o.isMesh);
+  if (!meshes.length) return;
+  // compute scene centroid from bbox centers
+  const sceneCenter = new THREE.Vector3();
+  meshes.forEach(m => {
+    const c = new THREE.Box3().setFromObject(m).getCenter(new THREE.Vector3());
+    sceneCenter.add(c);
+  });
+  sceneCenter.divideScalar(meshes.length);
+  _explodeSaved = new Map();
+  for (const m of meshes) {
+    _explodeSaved.set(m.name, m.position.clone());
+    const c = new THREE.Box3().setFromObject(m).getCenter(new THREE.Vector3());
+    const dir = c.clone().sub(sceneCenter).normalize();
+    if (dir.lengthSq() < 0.001) continue;  // part is at centroid, skip
+    m.position.add(dir.multiplyScalar(40));  // 40 mm outward
+    const edges = partGroup.children.find(o => o.name === m.name + '__edges');
+    if (edges) edges.position.copy(m.position);
+  }
+});
+document.getElementById('unexplodeBtn').addEventListener('click', () => {
+  if (!_explodeSaved) return;
+  for (const m of partGroup.children.filter(o => o.isMesh)) {
+    const orig = _explodeSaved.get(m.name);
+    if (orig) {
+      m.position.copy(orig);
+      const edges = partGroup.children.find(o => o.name === m.name + '__edges');
+      if (edges) edges.position.copy(orig);
+    }
+  }
+  _explodeSaved = null;
+});
+
+// ----- thermal (heat-transfer) button -----
+document.getElementById('thermalRun').addEventListener('click', async () => {
+  if (!_selected) {
+    addMsg('bot', 'error', 'Select a part first (click it in the viewport or feature tree).');
+    return;
+  }
+  addMsg('system', 'thermal', `running steady-state thermal on '${_selected.name}' (T_hot=100°C on +Z face, T_cold=20°C on -Z face)...`);
+  try {
+    const r = await fetch('/fea/thermal', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ part: _selected.name, t_hot: 100, t_cold: 20, axis: 'Z' }),
+    });
+    const d = await r.json();
+    if (d.error) { addMsg('bot', 'error', 'thermal: ' + d.error); return; }
+    addMsg('bot', 'thermal',
+      `done. Max temp: ${d.t_max?.toFixed(1)}°C, min temp: ${d.t_min?.toFixed(1)}°C, ` +
+      `gradient: ${d.grad_max?.toFixed(2)}°C/mm. (${d.n_nodes} nodes, ${d.n_elems} elements)`);
+  } catch (e) {
+    addMsg('bot', 'error', 'thermal call failed: ' + String(e));
+  }
 });
 
 // ----- FEA simulate button -----

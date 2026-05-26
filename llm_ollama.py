@@ -76,14 +76,29 @@ def run_ollama(model: str, history: list[dict], engine,
     op_log: list[str] = []
     tools = _to_ollama_tools()
 
+    # Small local models (Llama 3.2 3B in particular) love to "explain how
+    # they would use" a function instead of actually calling it. Tighten the
+    # system prompt aggressively for these models.
+    OLLAMA_SYSTEM = (
+        "You are a CAD command interpreter. The user describes a part in plain "
+        "English. You MUST respond by CALLING one of the provided functions. "
+        "DO NOT write Python code. DO NOT explain. DO NOT provide tutorials. "
+        "Pick the single most-appropriate function and call it with concrete "
+        "numeric arguments. If the user wants a 'cylinder', call `cylinder` "
+        "with a name and dimensions. If they want a gear, call `lib_gear`. "
+        "If they want an airfoil, call `lib_naca`. ALWAYS choose a function "
+        "and ALWAYS provide numeric arguments. Make up reasonable defaults "
+        "when the user is vague (e.g. 30 mm cylinder, 24-tooth gear).\n\n"
+        + SYSTEM_PROMPT
+    )
     for _ in range(25):  # tool-loop cap
-        messages = [{"role": "system", "content": SYSTEM_PROMPT}] + history
+        messages = [{"role": "system", "content": OLLAMA_SYSTEM}] + history
         payload = {
             "model": model,
             "messages": messages,
             "tools": tools,
             "stream": False,
-            "options": {"temperature": 0.2},
+            "options": {"temperature": 0.0, "top_p": 0.1},
         }
         try:
             resp = _post("/api/chat", payload, timeout=300)

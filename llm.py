@@ -465,10 +465,10 @@ TOOLS = [
         "required": ["assembly"]}},
     # ---------------- parametric components library ---------------- #
     {"name": "lib_bolt",
-     "description": "M-series hex-head bolt. spec like 'M6', length in mm.",
+     "description": "M-series hex-head bolt. spec like 'M6', length in mm. Set threaded=true to add a real helical thread (slower, ~10x more triangles).",
      "input_schema": {"type": "object",
         "properties": {"name": {"type": "string"}, "spec": {"type": "string"},
-                       "length": {"type": "number"},
+                       "length": {"type": "number"}, "threaded": {"type": "boolean"},
                        "x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}},
         "required": ["name", "spec", "length"]}},
     {"name": "lib_nut",
@@ -1193,7 +1193,12 @@ def run_parser(engine: CadEngine, line: str) -> str:
             name, spec, length, *rest = a
             xyz = [_f(v) for v in rest] + [0, 0, 0]
             return engine.library.bolt(name, spec, _f(length),
-                                       xyz[0], xyz[1], xyz[2])
+                                       False, xyz[0], xyz[1], xyz[2])
+        if cmd == "boltT":  # threaded bolt — real helical sweep
+            name, spec, length, *rest = a
+            xyz = [_f(v) for v in rest] + [0, 0, 0]
+            return engine.library.bolt(name, spec, _f(length),
+                                       True, xyz[0], xyz[1], xyz[2])
         if cmd == "nut":
             name, spec, *rest = a
             xyz = [_f(v) for v in rest] + [0, 0, 0]

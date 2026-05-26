@@ -378,6 +378,32 @@ def fea_run():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/fea/thermal", methods=["POST"])
+def fea_thermal():
+    """Steady-state heat conduction on the named part. Hot face fixed at
+    t_hot°C on the +axis side, cold face at t_cold°C on the -axis side.
+    """
+    data = request.get_json(force=True)
+    part = (data.get("part") or "").strip()
+    t_hot = float(data.get("t_hot", 100.0))
+    t_cold = float(data.get("t_cold", 20.0))
+    axis = (data.get("axis") or "Z").strip().upper()
+    if not part:
+        return jsonify({"error": "part is required"}), 400
+    with _lock:
+        if part not in engine.parts:
+            return jsonify({"error": f"no part '{part}'"}), 404
+        try:
+            stl_path = engine.export_part_stl(part)
+        except Exception as e:
+            return jsonify({"error": f"could not export STL: {e}"}), 500
+    try:
+        from fea import run_thermal
+        return jsonify(run_thermal(stl_path, t_hot=t_hot, t_cold=t_cold, axis=axis))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/ollama/status")
 def ollama_status():
     """Quick health check used by the UI to show Ollama availability."""

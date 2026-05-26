@@ -145,13 +145,95 @@ def run(stl_path: str, load_N: float, axis: str, material: str) -> dict:
     }
 
 
+def run_thermal(stl_path: str, t_hot: float, t_cold: float,
+                axis: str = "Z") -> dict:
+    """Steady-state heat conduction: T_hot on +axis face, T_cold on -axis face.
+    Returns max/min temperature and the maximum gradient magnitude.
+    """
+    with open(stl_path, "rb") as f:
+        f.read(80); nb = f.read(4)
+        if len(nb) < 4:
+            return {"error": "STL too short / empty"}
+        import struct
+        n = struct.unpack("<I", nb)[0]
+        sample_pts = []
+        for _ in range(min(n, 5000)):
+            d = f.read(50)
+            if len(d) < 50: break
+            v = struct.unpack("<12fH", d)
+            sample_pts.extend([v[3:6], v[6:9], v[9:12]])
+        sample_pts = np.array(sample_pts, dtype=np.float32)
+    bb = np.ptp(sample_pts, axis=0)
+    longest = float(bb.max()) if bb.size else 10.0
+    mesh_size = max(0.5, longest / 18.0)
+
+    pts3d, tets = _mesh_with_gmsh(stl_path, mesh_size=mesh_size)
+    if len(tets) < 10:
+        return {"error": "mesh too small for thermal analysis"}
+
+    from skfem import MeshTet, Basis, ElementTetP1, asm, condense, solve
+    from skfem.helpers import dot, grad
+    from skfem.models.poisson import laplace
+
+    mesh = MeshTet(pts3d.T, tets.T)
+    basis = Basis(mesh, ElementTetP1())
+    K = asm(laplace, basis)
+
+    ax = {"X": 0, "Y": 1, "Z": 2}[axis.upper()]
+    bb_min = pts3d.min(0); bb_max = pts3d.max(0)
+    tol = max((bb_max[ax] - bb_min[ax]) * 0.02, 0.01)
+    hot_idx  = np.where(np.abs(pts3d[:, ax] - bb_max[ax]) < tol)[0]
+    cold_idx = np.where(np.abs(pts3d[:, ax] - bb_min[ax]) < tol)[0]
+    if len(hot_idx) == 0 or len(cold_idx) == 0:
+        return {"error": "couldn't identify hot/cold faces"}
+
+    n = pts3d.shape[0]
+    T = np.zeros(n)
+    T[hot_idx] = float(t_hot)
+    T[cold_idx] = float(t_cold)
+    fixed_dofs = np.concatenate([hot_idx, cold_idx])
+
+    T_sol = solve(*condense(K, x=T, D=fixed_dofs))
+
+    # Compute per-element gradient magnitude
+    grads = np.zeros(len(tets))
+    for i, tet in enumerate(tets):
+        P = pts3d[tet]; Tv = T_sol[tet]
+        A = (P[:3] - P[3]).T
+        b = Tv[:3] - Tv[3]
+        try:
+            g = np.linalg.solve(A.T, b)
+        except np.linalg.LinAlgError:
+            continue
+        grads[i] = np.linalg.norm(g)
+
+    return {
+        "ok": True,
+        "n_nodes": int(n),
+        "n_elems": int(len(tets)),
+        "axis": axis.upper(),
+        "t_max": float(T_sol.max()),
+        "t_min": float(T_sol.min()),
+        "grad_max": float(grads.max()),
+    }
+
+
 if __name__ == "__main__":
     try:
-        stl_path = sys.argv[1]
-        load_N = float(sys.argv[2])
-        axis = sys.argv[3]
-        material = sys.argv[4] if len(sys.argv) > 4 else "aluminum"
-        out = run(stl_path, load_N, axis, material)
+        mode = sys.argv[1]
+        if mode == "thermal":
+            stl_path = sys.argv[2]
+            t_hot = float(sys.argv[3])
+            t_cold = float(sys.argv[4])
+            axis = sys.argv[5] if len(sys.argv) > 5 else "Z"
+            out = run_thermal(stl_path, t_hot, t_cold, axis)
+        else:
+            # Legacy positional: <stl> <load_N> <axis> [material]  -> elasticity
+            stl_path = sys.argv[1]
+            load_N = float(sys.argv[2])
+            axis = sys.argv[3]
+            material = sys.argv[4] if len(sys.argv) > 4 else "aluminum"
+            out = run(stl_path, load_N, axis, material)
     except Exception as e:
         out = {"error": f"{type(e).__name__}: {e}",
                "trace": traceback.format_exc()[-500:]}

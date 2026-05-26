@@ -12,19 +12,16 @@ import subprocess
 import sys
 
 
-def run_fea(stl_path: str, load_N: float = 100.0, axis: str = "Z",
-            material: str = "aluminum") -> dict:
-    if not os.path.exists(stl_path):
-        return {"error": f"STL not found at {stl_path}"}
+def _run_worker(args: list[str]) -> dict:
     here = os.path.dirname(os.path.abspath(__file__))
     worker = os.path.join(here, "fea_worker.py")
     try:
         proc = subprocess.run(
-            [sys.executable, worker, stl_path, str(load_N), axis, material],
+            [sys.executable, worker, *args],
             capture_output=True, text=True, timeout=180,
         )
     except subprocess.TimeoutExpired:
-        return {"error": "FEA timed out after 180 s"}
+        return {"error": "FEA worker timed out after 180 s"}
     if proc.returncode != 0:
         return {"error": f"worker exited {proc.returncode}",
                 "stderr": (proc.stderr or "")[-500:]}
@@ -34,3 +31,17 @@ def run_fea(stl_path: str, load_N: float = 100.0, axis: str = "Z",
     except Exception as e:
         return {"error": f"worker returned non-JSON: {e}",
                 "stdout_tail": out[-400:]}
+
+
+def run_fea(stl_path: str, load_N: float = 100.0, axis: str = "Z",
+            material: str = "aluminum") -> dict:
+    if not os.path.exists(stl_path):
+        return {"error": f"STL not found at {stl_path}"}
+    return _run_worker([stl_path, str(load_N), axis, material])
+
+
+def run_thermal(stl_path: str, t_hot: float = 100.0, t_cold: float = 20.0,
+                axis: str = "Z") -> dict:
+    if not os.path.exists(stl_path):
+        return {"error": f"STL not found at {stl_path}"}
+    return _run_worker(["thermal", stl_path, str(t_hot), str(t_cold), axis])

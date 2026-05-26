@@ -42,11 +42,26 @@ def _project_outline(tris: np.ndarray, axis: int) -> tuple[np.ndarray, np.ndarra
     return pts[:, other[0]], pts[:, other[1]]
 
 
-def _draw_view_2d(ax, tris: np.ndarray, axis: int, title: str) -> None:
-    """Outline-style 2D projection of triangles onto a plane perpendicular
-    to `axis`. Renders each triangle as a filled grey polygon so overlaps
-    fuse into a silhouette.
+def _add_dimension(ax, x0: float, y0: float, x1: float, y1: float,
+                   value_mm: float, label_axis: str = "x", offset: float = 0):
+    """Draw a single dimension line with arrows + a numeric label, like a
+    real engineering drawing. label_axis = 'x' for horizontal dimensions
+    (label above), 'y' for vertical (label to the right).
     """
+    color = "#a02020"
+    # the main line + tick perpendiculars at each end (simple ANSI style)
+    ax.annotate("", xy=(x1, y1), xytext=(x0, y0),
+                arrowprops=dict(arrowstyle="<->", color=color, lw=0.8))
+    if label_axis == "x":
+        ax.text((x0 + x1) / 2, max(y0, y1) + offset, f"{value_mm:.2f}",
+                fontsize=7, color=color, ha="center", va="bottom")
+    else:
+        ax.text(max(x0, x1) + offset, (y0 + y1) / 2, f"{value_mm:.2f}",
+                fontsize=7, color=color, ha="left", va="center", rotation=90)
+
+
+def _draw_view_2d(ax, tris: np.ndarray, axis: int, title: str) -> None:
+    """Outline-style 2D projection + overall-length dimension lines."""
     other = [i for i in range(3) if i != axis]
     polys = []
     for tri in tris:
@@ -56,13 +71,23 @@ def _draw_view_2d(ax, tris: np.ndarray, axis: int, title: str) -> None:
                           linewidth=0.05, alpha=1.0)
     ax.add_collection(coll)
     pts = tris.reshape(-1, 3)
-    pad = 0.05 * max(pts[:, other[0]].ptp(), pts[:, other[1]].ptp(), 1.0)
-    ax.set_xlim(pts[:, other[0]].min() - pad, pts[:, other[0]].max() + pad)
-    ax.set_ylim(pts[:, other[1]].min() - pad, pts[:, other[1]].max() + pad)
+    x_min, x_max = pts[:, other[0]].min(), pts[:, other[0]].max()
+    y_min, y_max = pts[:, other[1]].min(), pts[:, other[1]].max()
+    dx, dy = x_max - x_min, y_max - y_min
+    pad = 0.18 * max(dx, dy, 1.0)
+    ax.set_xlim(x_min - pad, x_max + pad)
+    ax.set_ylim(y_min - pad * 1.15, y_max + pad * 0.85)
     ax.set_aspect("equal")
     ax.set_title(title, fontsize=9, pad=2)
     ax.grid(True, linewidth=0.3, alpha=0.4)
     ax.tick_params(labelsize=6)
+    # overall dimensions: width arrow below, height arrow on the right
+    dim_y = y_min - pad * 0.55
+    _add_dimension(ax, x_min, dim_y, x_max, dim_y, dx, label_axis="x",
+                   offset=pad * 0.08)
+    dim_x = x_max + pad * 0.55
+    _add_dimension(ax, dim_x, y_min, dim_x, y_max, dy, label_axis="y",
+                   offset=pad * 0.08)
 
 
 def _draw_iso(ax, tris: np.ndarray, title: str) -> None:

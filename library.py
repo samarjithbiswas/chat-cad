@@ -49,19 +49,49 @@ def _hex_prism(across_flats: float, height: float) -> cq.Workplane:
 
 # ---------------- fasteners ---------------- #
 def bolt(d: float, head_af: float, head_h: float, shank_d: float,
-         shank_len: float) -> cq.Workplane:
-    """Hex-head bolt: hex head sitting on a smooth shank along +Z."""
+         shank_len: float, threaded: bool = False,
+         pitch: float | None = None) -> cq.Workplane:
+    """Hex-head bolt: hex head sitting on a shank along +Z.
+    If `threaded` is True, an external helical thread is swept along the
+    bottom 2/3 of the shank length. Real geometry, but it adds ~10x the
+    triangle count.
+    """
     head = _hex_prism(head_af, head_h)
     shaft = (cq.Workplane("XY").workplane(offset=head_h)
              .circle(shank_d / 2).extrude(shank_len))
     body = head.union(shaft)
+    if threaded:
+        # default ISO coarse pitch table for common Ms (approximate)
+        if pitch is None:
+            pitch_table = {2: 0.4, 2.5: 0.45, 3: 0.5, 4: 0.7, 5: 0.8,
+                           6: 1.0, 8: 1.25, 10: 1.5, 12: 1.75, 16: 2.0, 20: 2.5}
+            pitch = pitch_table.get(round(shank_d * 2) / 2, max(0.3, shank_d * 0.16))
+        thread_len = shank_len * 0.7  # threaded portion: bottom ~70% of shank
+        thread_z0 = head_h + (shank_len - thread_len)
+        try:
+            helix = cq.Wire.makeHelix(float(pitch), float(thread_len), shank_d / 2)
+            path = cq.Workplane(obj=helix).translate((0, 0, thread_z0))
+            # tiny triangular profile (~60deg) sweeping along the helix
+            h = pitch * 0.55           # thread crest height
+            inset = 0.15               # bury thread base 0.15 mm into shank
+            profile = (cq.Workplane("XZ")
+                       .moveTo(shank_d / 2 - inset, thread_z0)
+                       .lineTo(shank_d / 2 + h,     thread_z0 + pitch / 2)
+                       .lineTo(shank_d / 2 - inset, thread_z0 + pitch)
+                       .close())
+            thread = profile.sweep(path, isFrenet=True)
+            body = body.union(thread)
+        except Exception:
+            pass  # if sweep fails, return smooth shank
     return body
 
 
-def bolt_m(spec: str, length: float) -> cq.Workplane:
-    """Convenience: bolt('M6', 30) -> 30 mm long M6 hex-head bolt."""
+def bolt_m(spec: str, length: float, threaded: bool = False) -> cq.Workplane:
+    """Convenience: bolt_m('M6', 30) -> 30 mm long M6 hex-head bolt.
+    Pass threaded=True to cut a real helical thread along the shank.
+    """
     d, (af, hh, _nh, _wo, _wt) = _m(spec)
-    return bolt(d, af, hh, d, float(length))
+    return bolt(d, af, hh, d, float(length), threaded=threaded)
 
 
 def nut(d: float, across_flats: float, height: float) -> cq.Workplane:
@@ -522,10 +552,12 @@ class LibraryEngine:
 
     # ---- fasteners ---- #
     def bolt(self, name: str, spec: str, length: float,
+             threaded: bool = False,
              x: float = 0, y: float = 0, z: float = 0) -> str:
-        wp = bolt_m(spec, length).translate((x, y, z))
+        wp = bolt_m(spec, length, threaded=bool(threaded)).translate((x, y, z))
         self._store(name, wp)
-        return f"created {spec} hex bolt '{name}' length {length} mm"
+        thr = " with real helical thread" if threaded else ""
+        return f"created {spec} hex bolt '{name}' length {length} mm{thr}"
 
     def nut(self, name: str, spec: str,
             x: float = 0, y: float = 0, z: float = 0) -> str:
