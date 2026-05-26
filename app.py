@@ -177,6 +177,60 @@ def list_parts():
         return jsonify({"text": engine.list_parts()})
 
 
+@app.route("/import/step", methods=["POST"])
+def import_step_endpoint():
+    """Upload a STEP file and add it to the scene as a named part."""
+    name = (request.form.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "name is required"}), 400
+    f = request.files.get("file")
+    if f is None or not f.filename:
+        return jsonify({"error": "no file uploaded"}), 400
+    safe = "".join(c if c.isalnum() or c in "._-" else "_" for c in f.filename)
+    tmp_path = os.path.join(OUTPUT, "uploads")
+    os.makedirs(tmp_path, exist_ok=True)
+    saved = os.path.join(tmp_path, safe)
+    f.save(saved)
+    with _lock:
+        try:
+            msg = engine.step_io.step_import(name, saved)
+            _refresh_stl()
+        except Exception as e:
+            return jsonify({"error": str(e)}), 400
+    return jsonify({"ok": True, "reply": msg, "parts": engine.list_parts()})
+
+
+@app.route("/drawing/<name>.pdf")
+def drawing_pdf(name: str):
+    """Download an A4 4-view engineering drawing PDF for one part."""
+    from drawings import export_drawing
+    with _lock:
+        if name not in engine.parts:
+            return jsonify({"error": f"no part '{name}'"}), 404
+        try:
+            path = os.path.join(OUTPUT, f"drawing_{name}.pdf")
+            export_drawing(engine, name, path)
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+    return send_file(path, as_attachment=True,
+                     download_name=f"{name}.pdf")
+
+
+@app.route("/drawings.pdf")
+def drawings_all_pdf():
+    """Multi-page drawing PDF: one page per part in the scene."""
+    from drawings import export_drawings_all
+    with _lock:
+        if not engine.parts:
+            return jsonify({"error": "scene is empty"}), 400
+        path = os.path.join(OUTPUT, "drawings.pdf")
+        try:
+            export_drawings_all(engine, path)
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+    return send_file(path, as_attachment=True, download_name="drawings.pdf")
+
+
 @app.route("/agent/design", methods=["POST"])
 def agent_design():
     """Run the multi-agent design loop (planner -> modeler -> visual critic).

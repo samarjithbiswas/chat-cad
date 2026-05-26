@@ -15,6 +15,10 @@ import cadquery as cq
 from sketch_engine import SketchEngine
 from assembly_engine import AssemblyEngine
 from library import LibraryEngine
+from materials import MaterialsEngine
+from profiles import ProfilesEngine
+from step_io import StepIOEngine
+from sheet_metal import SheetMetalEngine
 
 
 class CadEngine:
@@ -26,6 +30,10 @@ class CadEngine:
         self.sketches = SketchEngine(self.parts)
         self.assemblies = AssemblyEngine(self.parts)
         self.library = LibraryEngine(self)
+        self.materials = MaterialsEngine(self)
+        self.profiles = ProfilesEngine(self)
+        self.step_io = StepIOEngine(self)
+        self.sheet = SheetMetalEngine(self)
 
     # ---------- internal ----------
     def _snapshot(self) -> None:
@@ -533,6 +541,30 @@ def dispatch(engine: CadEngine, op: str, args: dict[str, Any]) -> str:
         fn = getattr(engine.library, sub, None)
         if fn is None or sub.startswith("_"):
             raise ValueError(f"unknown library op '{op}'")
+        return fn(**args)
+    if op.startswith("mat_"):
+        sub = op[len("mat_"):]
+        fn = getattr(engine.materials, sub, None)
+        if fn is None or sub.startswith("_"):
+            raise ValueError(f"unknown materials op '{op}'")
+        return fn(**args)
+    if op.startswith("prof_"):
+        sub = op[len("prof_"):]
+        fn = getattr(engine.profiles, sub, None)
+        if fn is None or sub.startswith("_"):
+            raise ValueError(f"unknown profile op '{op}'")
+        return fn(**args)
+    if op.startswith("sm_"):
+        sub = op[len("sm_"):]
+        fn = getattr(engine.sheet, sub, None)
+        if fn is None or sub.startswith("_"):
+            raise ValueError(f"unknown sheet-metal op '{op}'")
+        return fn(**args)
+    if op.startswith("step_"):
+        sub = op
+        fn = getattr(engine.step_io, sub, None)
+        if fn is None or sub.startswith("_"):
+            raise ValueError(f"unknown step-io op '{op}'")
         return fn(**args)
     if op.startswith("asm_"):
         sub = op[len("asm_"):]

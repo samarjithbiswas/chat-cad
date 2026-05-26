@@ -616,6 +616,116 @@ TOOLS = [
                        "chord": {"type": "number"}, "span": {"type": "number"},
                        "x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}},
         "required": ["name", "code", "chord", "span"]}},
+    # ---------------- materials ---------------- #
+    {"name": "mat_assign",
+     "description": "Assign a material to a part. Available: steel, stainless, aluminum, brass, copper, titanium, pla, abs, nylon, rubber, wood, glass, concrete, lead.",
+     "input_schema": {"type": "object",
+        "properties": {"name": {"type": "string"}, "material": {"type": "string"}},
+        "required": ["name", "material"]}},
+    {"name": "mat_report",
+     "description": "Show volume / mass / COG / inertia tensor for a part.",
+     "input_schema": {"type": "object",
+        "properties": {"name": {"type": "string"}}, "required": ["name"]}},
+    # ---------------- structural profiles ---------------- #
+    {"name": "prof_tslot",
+     "description": "Aluminum T-slot extrusion (metric series 20/30/40), length along Z.",
+     "input_schema": {"type": "object",
+        "properties": {"name": {"type": "string"}, "series": {"type": "integer"},
+                       "length": {"type": "number"},
+                       "x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}},
+        "required": ["name", "series", "length"]}},
+    {"name": "prof_angle",
+     "description": "L-section angle iron with sides a x b, wall thickness t.",
+     "input_schema": {"type": "object",
+        "properties": {"name": {"type": "string"},
+                       "side_a": {"type": "number"}, "side_b": {"type": "number"},
+                       "thickness": {"type": "number"}, "length": {"type": "number"},
+                       "x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}},
+        "required": ["name", "side_a", "side_b", "thickness", "length"]}},
+    {"name": "prof_sqtube",
+     "description": "Hollow square tube (side x side, wall thickness).",
+     "input_schema": {"type": "object",
+        "properties": {"name": {"type": "string"},
+                       "side": {"type": "number"}, "wall": {"type": "number"},
+                       "length": {"type": "number"},
+                       "x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}},
+        "required": ["name", "side", "wall", "length"]}},
+    {"name": "prof_rtube",
+     "description": "Hollow round tube (OD, wall thickness).",
+     "input_schema": {"type": "object",
+        "properties": {"name": {"type": "string"},
+                       "od": {"type": "number"}, "wall": {"type": "number"},
+                       "length": {"type": "number"},
+                       "x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}},
+        "required": ["name", "od", "wall", "length"]}},
+    {"name": "prof_ibeam",
+     "description": "Symmetric I-beam (height, width, web thickness, flange thickness).",
+     "input_schema": {"type": "object",
+        "properties": {"name": {"type": "string"},
+                       "height": {"type": "number"}, "width": {"type": "number"},
+                       "web_t": {"type": "number"}, "flange_t": {"type": "number"},
+                       "length": {"type": "number"},
+                       "x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}},
+        "required": ["name", "height", "width", "web_t", "flange_t", "length"]}},
+    {"name": "prof_cchan",
+     "description": "C-channel (height, width, wall thickness).",
+     "input_schema": {"type": "object",
+        "properties": {"name": {"type": "string"},
+                       "height": {"type": "number"}, "width": {"type": "number"},
+                       "thickness": {"type": "number"}, "length": {"type": "number"},
+                       "x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}},
+        "required": ["name", "height", "width", "thickness", "length"]}},
+    # ---------------- sheet metal ---------------- #
+    {"name": "sm_flat",
+     "description": "Flat sheet metal panel.",
+     "input_schema": {"type": "object",
+        "properties": {"name": {"type": "string"},
+                       "length": {"type": "number"}, "width": {"type": "number"},
+                       "thickness": {"type": "number"},
+                       "x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}},
+        "required": ["name", "length", "width", "thickness"]}},
+    {"name": "sm_l_bend",
+     "description": "L-shaped 90deg bent sheet (two legs a and b, optional bend radius).",
+     "input_schema": {"type": "object",
+        "properties": {"name": {"type": "string"},
+                       "length": {"type": "number"}, "width": {"type": "number"},
+                       "thickness": {"type": "number"},
+                       "leg_a": {"type": "number"}, "leg_b": {"type": "number"},
+                       "bend_radius": {"type": "number"},
+                       "x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}},
+        "required": ["name", "length", "width", "thickness", "leg_a", "leg_b"]}},
+    {"name": "sm_u_bend",
+     "description": "U-shaped (channel) bent sheet.",
+     "input_schema": {"type": "object",
+        "properties": {"name": {"type": "string"},
+                       "length": {"type": "number"}, "width": {"type": "number"},
+                       "thickness": {"type": "number"},
+                       "leg_height": {"type": "number"}, "bend_radius": {"type": "number"},
+                       "x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}},
+        "required": ["name", "length", "width", "thickness", "leg_height"]}},
+    {"name": "sm_box",
+     "description": "Open-top sheet-metal box: floor + 4 walls.",
+     "input_schema": {"type": "object",
+        "properties": {"name": {"type": "string"},
+                       "length": {"type": "number"}, "width": {"type": "number"},
+                       "height": {"type": "number"}, "thickness": {"type": "number"},
+                       "bend_radius": {"type": "number"},
+                       "x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}},
+        "required": ["name", "length", "width", "height", "thickness"]}},
+    {"name": "sm_flange",
+     "description": "Add a perpendicular flange to an existing flat sheet along an edge (+X/-X/+Y/-Y).",
+     "input_schema": {"type": "object",
+        "properties": {"name": {"type": "string"}, "edge_axis": {"type": "string"},
+                       "flange_length": {"type": "number"}, "thickness": {"type": "number"},
+                       "bend_radius": {"type": "number"}},
+        "required": ["name"]}},
+    # ---------------- STEP import ---------------- #
+    {"name": "step_import",
+     "description": "Import a STEP file from a local path into the scene as a named part. Use for supplier models (McMaster, Bosch, etc.).",
+     "input_schema": {"type": "object",
+        "properties": {"name": {"type": "string"}, "path": {"type": "string"},
+                       "x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}},
+        "required": ["name", "path"]}},
     # ---------------- selective fillet / chamfer ---------------- #
     {"name": "fillet_edges",
      "description": "Fillet edges matching a CadQuery selector ('all','+Z','-Z','|Z','>Z',etc).",
@@ -856,6 +966,33 @@ _HELP = """commands (fallback parser, used when no Claude API key is set):
   combustor  <name> <D> <L> [wall] [hole_d] [rings] [per_ring] [x y z]
   honeycomb  <name> <L> <W> <T> [cell] [wall] [x y z]
   naca       <name> <NACA4-code> <chord> <span> [x y z]
+
+ Materials / mass properties:
+  mat list                                  show density table
+  mat assign <part> <material>              steel|aluminum|brass|pla|abs|...
+  mat report <part>                         volume, mass, COG, inertia
+
+ Structural profiles:
+  tslot   <name> <series> <length> [x y z]      series=20|30|40
+  angle   <name> <a> <b> <t> <length> [x y z]
+  sqtube  <name> <side> <wall> <length> [x y z]
+  rtube   <name> <od>   <wall> <length> [x y z]
+  ibeam   <name> <H> <W> <web> <flange> <length> [x y z]
+  cchan   <name> <H> <W> <t> <length> [x y z]
+
+ Sheet metal:
+  sheet flat   <name> <L> <W> <t> [x y z]
+  sheet l      <name> <L> <W> <t> <leg_a> <leg_b> [bend_r] [x y z]
+  sheet u      <name> <L> <W> <t> <leg_h>         [bend_r] [x y z]
+  sheet box    <name> <L> <W> <H> <t>             [bend_r] [x y z]
+  sheet flange <name> <+X|-X|+Y|-Y> <flange_L> [t] [bend_r]
+
+ STEP import:
+  step import <name> <path-to-file.step> [x y z]
+
+ Engineering drawing PDF (via UI button or HTTP endpoint):
+  GET /drawing/<part>.pdf     download a 4-view PDF of one part
+  GET /drawings.pdf           multi-page PDF, one per part
 
  Selective fillet / chamfer / holes / sketch-driven features:
   filletx  <name> <radius> [selector]     selector e.g. >Z, |Z, +X, all
@@ -1178,6 +1315,92 @@ def run_parser(engine: CadEngine, line: str) -> str:
             xyz = [_f(v) for v in rest] + [0, 0, 0]
             return engine.library.naca(name, code, _f(chord), _f(span),
                                        xyz[0], xyz[1], xyz[2])
+        # ---------------- materials ----------------
+        if cmd == "mat":
+            # mat assign <name> <material>  |  mat report <name>  |  mat list
+            sub = a[0].lower() if a else ""
+            if sub == "list":
+                from materials import list_materials
+                return list_materials()
+            if sub == "assign":
+                return engine.materials.assign(a[1], a[2])
+            if sub == "report":
+                return engine.materials.report(a[1])
+            return f"unknown mat sub-command '{sub}'"
+        # ---------------- structural profiles ----------------
+        if cmd == "tslot":
+            name, series, length, *rest = a
+            xyz = [_f(v) for v in rest] + [0, 0, 0]
+            return engine.profiles.tslot(name, int(series), _f(length),
+                                          xyz[0], xyz[1], xyz[2])
+        if cmd == "angle":
+            name, sa, sb, t, L, *rest = a
+            xyz = [_f(v) for v in rest] + [0, 0, 0]
+            return engine.profiles.angle(name, _f(sa), _f(sb), _f(t), _f(L),
+                                          xyz[0], xyz[1], xyz[2])
+        if cmd == "sqtube":
+            name, side, wall, L, *rest = a
+            xyz = [_f(v) for v in rest] + [0, 0, 0]
+            return engine.profiles.sqtube(name, _f(side), _f(wall), _f(L),
+                                           xyz[0], xyz[1], xyz[2])
+        if cmd == "rtube":
+            name, od, wall, L, *rest = a
+            xyz = [_f(v) for v in rest] + [0, 0, 0]
+            return engine.profiles.rtube(name, _f(od), _f(wall), _f(L),
+                                          xyz[0], xyz[1], xyz[2])
+        if cmd == "ibeam":
+            name, H, W, web, flange, L, *rest = a
+            xyz = [_f(v) for v in rest] + [0, 0, 0]
+            return engine.profiles.ibeam(name, _f(H), _f(W), _f(web),
+                                          _f(flange), _f(L),
+                                          xyz[0], xyz[1], xyz[2])
+        if cmd == "cchan":
+            name, H, W, t, L, *rest = a
+            xyz = [_f(v) for v in rest] + [0, 0, 0]
+            return engine.profiles.cchan(name, _f(H), _f(W), _f(t), _f(L),
+                                          xyz[0], xyz[1], xyz[2])
+        # ---------------- sheet metal ----------------
+        if cmd == "sheet":
+            sub = a[0].lower() if a else ""
+            if sub == "flat":
+                _, name, L, W, t, *rest = a
+                xyz = [_f(v) for v in rest] + [0, 0, 0]
+                return engine.sheet.flat(name, _f(L), _f(W), _f(t),
+                                          xyz[0], xyz[1], xyz[2])
+            if sub == "l":
+                _, name, L, W, t, la, lb, *rest = a
+                br = _f(rest[0]) if rest else 0
+                xyz = [_f(v) for v in rest[1:]] + [0, 0, 0]
+                return engine.sheet.l_bend(name, _f(L), _f(W), _f(t),
+                                            _f(la), _f(lb), br,
+                                            xyz[0], xyz[1], xyz[2])
+            if sub == "u":
+                _, name, L, W, t, lh, *rest = a
+                br = _f(rest[0]) if rest else 0
+                xyz = [_f(v) for v in rest[1:]] + [0, 0, 0]
+                return engine.sheet.u_bend(name, _f(L), _f(W), _f(t), _f(lh),
+                                            br, xyz[0], xyz[1], xyz[2])
+            if sub == "box":
+                _, name, L, W, H, t, *rest = a
+                br = _f(rest[0]) if rest else 0
+                xyz = [_f(v) for v in rest[1:]] + [0, 0, 0]
+                return engine.sheet.box(name, _f(L), _f(W), _f(H), _f(t), br,
+                                         xyz[0], xyz[1], xyz[2])
+            if sub == "flange":
+                _, name, edge, fl, *rest = a
+                t = _f(rest[0]) if len(rest) > 0 else 2
+                br = _f(rest[1]) if len(rest) > 1 else 0
+                return engine.sheet.flange(name, edge, _f(fl), t, br)
+            return f"unknown sheet sub-command '{sub}'"
+        # ---------------- STEP import ----------------
+        if cmd == "step":
+            sub = a[0].lower() if a else ""
+            if sub == "import":
+                _, name, path, *rest = a
+                xyz = [_f(v) for v in rest] + [0, 0, 0]
+                return engine.step_io.step_import(name, path,
+                                                   xyz[0], xyz[1], xyz[2])
+            return f"unknown step sub-command '{sub}'"
         if cmd in ("fillete", "filletx"):
             # selective fillet:  filletx <name> <radius> [selector]
             name, r, *rest = a

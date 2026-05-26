@@ -169,6 +169,9 @@
         <button id="fitBtn">Fit view</button>
         <button id="exportStl">Export STL</button>
         <button id="exportStep">Export STEP</button>
+        <button id="drawingPdf">Drawing PDF</button>
+        <button id="importStepBtn">Import STEP</button>
+        <input id="importStepFile" type="file" accept=".step,.stp" style="display:none" />
         <span style="width:1px;height:18px;background:#2a2f37;margin:0 4px"></span>
         <label><input type="checkbox" id="secEnable" /> Section</label>
         <select id="secAxis">
@@ -821,6 +824,45 @@ document.getElementById('exportStl').addEventListener('click',
   () => window.location.href = '/export/stl');
 document.getElementById('exportStep').addEventListener('click',
   () => window.location.href = '/export/step');
+
+// Drawing PDF — if exactly one part exists, single-page; else multi-page
+document.getElementById('drawingPdf').addEventListener('click', async () => {
+  try {
+    const m = await (await fetch('/scene/manifest')).json();
+    if (!m.parts || !m.parts.length) {
+      addMsg('bot', 'error', 'scene is empty');
+      return;
+    }
+    if (m.parts.length === 1) {
+      window.location.href = '/drawing/' + encodeURIComponent(m.parts[0].name) + '.pdf';
+    } else {
+      window.location.href = '/drawings.pdf';
+    }
+  } catch (e) { addMsg('bot', 'error', String(e)); }
+});
+
+// Import STEP — hidden <input type=file> + ask for a name
+const importStepFile = document.getElementById('importStepFile');
+document.getElementById('importStepBtn').addEventListener('click',
+  () => importStepFile.click());
+importStepFile.addEventListener('change', async () => {
+  const file = importStepFile.files[0];
+  if (!file) return;
+  const defaultName = file.name.replace(/\.(step|stp)$/i, '').replace(/[^A-Za-z0-9_]/g, '_');
+  const name = prompt('Part name in scene:', defaultName);
+  if (!name) { importStepFile.value = ''; return; }
+  const fd = new FormData();
+  fd.append('name', name);
+  fd.append('file', file);
+  addMsg('system', 'agent', 'uploading ' + file.name + ' (' + (file.size/1024).toFixed(0) + ' KB)...');
+  try {
+    const r = await fetch('/import/step', { method: 'POST', body: fd });
+    const data = await r.json();
+    if (data.error) addMsg('bot', 'error', data.error);
+    else { addMsg('bot', 'cad', data.reply); reloadScene(); }
+  } catch (e) { addMsg('bot', 'error', String(e)); }
+  importStepFile.value = '';
+});
 
 addMsg('bot', 'cad', `Welcome. Each part shows in its own colour with SolidWorks-style edge outlines.
 
