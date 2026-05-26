@@ -609,6 +609,39 @@ TOOLS = [
                        "cell_size": {"type": "number"}, "wall_thickness": {"type": "number"},
                        "x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}},
         "required": ["name", "length", "width", "thickness"]}},
+    # ---------------- complex assemblies (recipes) ---------------- #
+    {"name": "rcp_turbojet",
+     "description": "Build a complete single-spool turbojet engine: inlet bell + 4-stage compressor + combustor + turbine + exhaust nozzle. Creates 8 named sub-parts under <prefix>_*.",
+     "input_schema": {"type": "object",
+        "properties": {"prefix": {"type": "string"},
+                       "fan_d": {"type": "number"}, "length": {"type": "number"}},
+        "required": ["prefix"]}},
+    {"name": "rcp_turbofan",
+     "description": "Build a high-bypass turbofan engine: front fan + bypass case + 3-stage compressor + combustor + HP turbine + nozzle. ~9 sub-parts.",
+     "input_schema": {"type": "object",
+        "properties": {"prefix": {"type": "string"},
+                       "fan_d": {"type": "number"}, "length": {"type": "number"}},
+        "required": ["prefix"]}},
+    {"name": "rcp_bolt_stack",
+     "description": "Build a complete bolted joint: plate with hole + bolt + 2 washers + nut. Real threaded bolt.",
+     "input_schema": {"type": "object",
+        "properties": {"prefix": {"type": "string"}, "spec": {"type": "string"},
+                       "plate_thickness": {"type": "number"},
+                       "plate_size": {"type": "number"}},
+        "required": ["prefix"]}},
+    {"name": "rcp_gear_train",
+     "description": "Build a meshing gear train of N gears in a line.",
+     "input_schema": {"type": "object",
+        "properties": {"prefix": {"type": "string"},
+                       "n": {"type": "integer"}, "module": {"type": "number"},
+                       "teeth": {"type": "integer"}, "width": {"type": "number"}},
+        "required": ["prefix"]}},
+    {"name": "rcp_piston_engine",
+     "description": "Build a single-cylinder piston engine assembly: block, piston, pin, connecting rod, crankpin.",
+     "input_schema": {"type": "object",
+        "properties": {"prefix": {"type": "string"},
+                       "bore": {"type": "number"}, "stroke": {"type": "number"}},
+        "required": ["prefix"]}},
     {"name": "lib_naca",
      "description": "Extruded NACA 4-digit airfoil wing section (e.g. code '2412' for NACA 2412).",
      "input_schema": {"type": "object",
@@ -1314,6 +1347,38 @@ def run_parser(engine: CadEngine, line: str) -> str:
             return engine.library.honeycomb(name, _f(L), _f(W), _f(T),
                                             cell, wall,
                                             xyz[0], xyz[1], xyz[2])
+        if cmd == "turbojet":
+            # turbojet <prefix> [fan_d] [length]
+            prefix, *rest = a
+            fan_d = _f(rest[0]) if len(rest) > 0 else 100
+            L = _f(rest[1]) if len(rest) > 1 else 400
+            return engine.recipes.turbojet(prefix, fan_d, L)
+        if cmd == "turbofan":
+            prefix, *rest = a
+            fan_d = _f(rest[0]) if len(rest) > 0 else 180
+            L = _f(rest[1]) if len(rest) > 1 else 500
+            return engine.recipes.turbofan(prefix, fan_d, L)
+        if cmd == "bolt_stack":
+            # bolt_stack <prefix> [M-spec] [plate_t] [plate_size]
+            prefix, *rest = a
+            spec = rest[0] if len(rest) > 0 else "M6"
+            pt = _f(rest[1]) if len(rest) > 1 else 10
+            ps = _f(rest[2]) if len(rest) > 2 else 40
+            return engine.recipes.bolt_stack(prefix, spec, pt, ps)
+        if cmd in ("gear_train", "geartrain"):
+            # gear_train <prefix> [n] [module] [teeth] [width]
+            prefix, *rest = a
+            n = int(rest[0]) if len(rest) > 0 else 4
+            m = _f(rest[1]) if len(rest) > 1 else 1.5
+            t = int(rest[2]) if len(rest) > 2 else 20
+            w = _f(rest[3]) if len(rest) > 3 else 6
+            return engine.recipes.gear_train(prefix, n, m, t, w)
+        if cmd in ("piston_engine", "engine"):
+            # engine <prefix> [bore] [stroke]
+            prefix, *rest = a
+            bore = _f(rest[0]) if len(rest) > 0 else 50
+            stroke = _f(rest[1]) if len(rest) > 1 else 60
+            return engine.recipes.piston_engine(prefix, bore, stroke)
         if cmd == "naca":
             # naca <name> <code> <chord> <span> [x y z]
             name, code, chord, span, *rest = a

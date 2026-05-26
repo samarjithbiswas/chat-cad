@@ -20,6 +20,7 @@ from profiles import ProfilesEngine
 from step_io import StepIOEngine
 from sheet_metal import SheetMetalEngine
 from knowledge import KnowledgeStore
+from assemblies_recipes import RecipesEngine
 
 
 class CadEngine:
@@ -36,6 +37,7 @@ class CadEngine:
         self.step_io = StepIOEngine(self)
         self.sheet = SheetMetalEngine(self)
         self.knowledge = KnowledgeStore(os.path.join(output_dir, "..", "knowledge"))
+        self.recipes = RecipesEngine(self)
 
     # ---------- internal ----------
     def _snapshot(self) -> None:
@@ -553,6 +555,12 @@ def dispatch(engine: CadEngine, op: str, args: dict[str, Any]) -> str:
         fn = getattr(engine.sketches, sub, None)
         if fn is None or sub.startswith("_"):
             raise ValueError(f"unknown sketch op '{op}'")
+        return fn(**args)
+    if op.startswith("rcp_"):
+        sub = op[len("rcp_"):]
+        fn = getattr(engine.recipes, sub, None)
+        if fn is None or sub.startswith("_"):
+            raise ValueError(f"unknown recipe op '{op}'")
         return fn(**args)
     if op.startswith("lib_"):
         sub = op[len("lib_"):]
