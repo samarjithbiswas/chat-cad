@@ -4,117 +4,150 @@
 <meta charset="utf-8" />
 <title>Chat CAD</title>
 <style>
-  :root { color-scheme: dark; }
+  :root {
+    color-scheme: dark;
+    --bg: #14171c;       --bg-2: #181c22;   --bg-3: #1c2128;
+    --bg-input: #0f1318; --border: #2a2f37; --border-2: #2c3340;
+    --text: #e6e8eb;     --text-dim: #9aa3b2; --text-faint: #6a7080;
+    --accent: #2c5fb3;   --accent-h: #3470c8;
+    --canvas-bg: 0x171b22; --canvas-fog: 0x171b22;
+    --grid-major: 0x4a5060; --grid-minor: 0x2a2f37;
+    --shadow-overlay: rgba(0,0,0,0.25);
+    --ops-bg: #11140f;   --ops-fg: #8fb98f; --ops-border: #3b5e3b;
+    --plan-bg: #1a1610;  --plan-fg: #d6c08f; --plan-border: #6b5a30;
+  }
+  :root.light {
+    color-scheme: light;
+    --bg: #f4f6fa;       --bg-2: #ffffff;   --bg-3: #ebeef3;
+    --bg-input: #ffffff; --border: #d0d6dd; --border-2: #c0c6cd;
+    --text: #1a1d22;     --text-dim: #4a5060; --text-faint: #7a8090;
+    --accent: #2461c2;   --accent-h: #1c4f9e;
+    --canvas-bg: 0xf0f3f7; --canvas-fog: 0xf0f3f7;
+    --grid-major: 0xc0c6cd; --grid-minor: 0xe0e4ea;
+    --shadow-overlay: rgba(0,0,0,0.1);
+    --ops-bg: #eef5e8;   --ops-fg: #3a6a3a; --ops-border: #95c08a;
+    --plan-bg: #f6efe0;  --plan-fg: #7a5e1c; --plan-border: #c8a85a;
+  }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; font-family: ui-sans-serif, system-ui, sans-serif;
-               background: #14171c; color: #e6e8eb; }
+               background: var(--bg); color: var(--text); }
   #root { display: grid; grid-template-columns: 380px 1fr; height: 100vh; }
-  #side { display: flex; flex-direction: column; border-right: 1px solid #2a2f37;
-          background: #181c22; }
+  #side { display: flex; flex-direction: column;
+          border-right: 1px solid var(--border); background: var(--bg-2); }
   #title { padding: 14px 16px; font-weight: 700; letter-spacing: 0.5px;
-           border-bottom: 1px solid #2a2f37; display: flex; justify-content: space-between;
-           align-items: center; }
+           border-bottom: 1px solid var(--border); display: flex;
+           justify-content: space-between; align-items: center; }
   #title small { font-weight: 400; opacity: 0.6; }
-  #settings { padding: 10px 14px; border-bottom: 1px solid #2a2f37;
+  #settings { padding: 10px 14px; border-bottom: 1px solid var(--border);
               display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
-  #settings input, #settings select { background: #0f1318; color: #e6e8eb;
-              border: 1px solid #2a2f37; border-radius: 4px; padding: 6px 8px;
+  #settings input, #settings select { background: var(--bg-input); color: var(--text);
+              border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px;
               font-family: inherit; font-size: 12px; }
   #log { flex: 1; overflow-y: auto; padding: 12px 14px; font-size: 13px;
          line-height: 1.45; }
   .msg { margin: 6px 0 14px; white-space: pre-wrap; word-wrap: break-word; }
-  .msg .who { font-size: 10px; opacity: 0.55; letter-spacing: 1px; text-transform: uppercase;
-              margin-bottom: 2px; }
-  .msg.user { color: #cfe2ff; }
-  .msg.bot  { color: #e6e8eb; }
-  .msg.ops  { color: #8fb98f; font-family: ui-monospace, monospace; font-size: 11px;
-              background: #11140f; border-left: 2px solid #3b5e3b; padding: 6px 8px;
+  .msg .who { font-size: 10px; opacity: 0.55; letter-spacing: 1px;
+              text-transform: uppercase; margin-bottom: 2px; }
+  .msg.user { color: var(--accent); }
+  .msg.bot  { color: var(--text); }
+  .msg.ops  { color: var(--ops-fg); font-family: ui-monospace, monospace;
+              font-size: 11px; background: var(--ops-bg);
+              border-left: 2px solid var(--ops-border); padding: 6px 8px;
               border-radius: 0 4px 4px 0; }
-  #input { display: flex; border-top: 1px solid #2a2f37; }
-  #input textarea { flex: 1; background: #0f1318; color: #e6e8eb; border: 0;
-                    padding: 10px 12px; font-family: inherit; font-size: 13px;
-                    resize: none; outline: none; min-height: 56px; }
-  #input button { background: #2c5fb3; color: white; border: 0; padding: 0 18px;
-                  font-weight: 600; cursor: pointer; }
-  #input button:hover { background: #3470c8; }
+  #input { display: flex; border-top: 1px solid var(--border); }
+  #input textarea { flex: 1; background: var(--bg-input); color: var(--text);
+                    border: 0; padding: 10px 12px; font-family: inherit;
+                    font-size: 13px; resize: none; outline: none; min-height: 56px; }
+  #input button { background: var(--accent); color: #fff; border: 0;
+                  padding: 0 18px; font-weight: 600; cursor: pointer; }
+  #input button:hover { background: var(--accent-h); }
 
-  #main { display: flex; flex-direction: column; min-width: 0; }
-  #tabs { display: flex; border-bottom: 1px solid #2a2f37; background: #1c2128; }
-  .tab { padding: 8px 18px; cursor: pointer; font-size: 12px; color: #cfd3dc;
-         border-right: 1px solid #2a2f37; user-select: none; }
-  .tab.active { background: #14171c; color: #fff; font-weight: 600; }
-  .tab:hover:not(.active) { background: #232932; }
+  #main { display: flex; flex-direction: column; min-width: 0; background: var(--bg); }
+  #tabs { display: flex; border-bottom: 1px solid var(--border); background: var(--bg-3); }
+  .tab { padding: 8px 18px; cursor: pointer; font-size: 12px;
+         color: var(--text-dim); border-right: 1px solid var(--border);
+         user-select: none; }
+  .tab.active { background: var(--bg); color: var(--text); font-weight: 600; }
+  .tab:hover:not(.active) { background: var(--bg-2); }
 
-  .pane {
-    flex: 1; display: none; position: relative; min-height: 0;
-  }
+  .pane { flex: 1; display: none; position: relative; min-height: 0; }
   .pane.active { display: flex; flex-direction: column; }
 
-  #toolbar { padding: 8px 12px; border-bottom: 1px solid #2a2f37; display: flex;
-             gap: 8px; background: #1c2128; align-items: center; }
-  #toolbar button, .sktoolbar button { background: #232932; color: #e6e8eb;
-                    border: 1px solid #2a2f37; border-radius: 4px;
-                    padding: 5px 10px; font-size: 12px; cursor: pointer; }
-  #toolbar button:hover, .sktoolbar button:hover { background: #2d343f; }
+  #toolbar { padding: 8px 12px; border-bottom: 1px solid var(--border);
+             display: flex; gap: 8px; background: var(--bg-3);
+             align-items: center; flex-wrap: wrap; }
+  #toolbar button, .sktoolbar button { background: var(--bg-2);
+                    color: var(--text); border: 1px solid var(--border);
+                    border-radius: 4px; padding: 5px 10px; font-size: 12px;
+                    cursor: pointer; }
+  #toolbar button:hover, .sktoolbar button:hover { background: var(--bg-3);
+                    border-color: var(--border-2); }
   #canvas { display: block; flex: 1; width: 100%; }
   #status { position: absolute; bottom: 8px; left: 12px; font-size: 11px;
-            opacity: 0.55; pointer-events: none; }
+            opacity: 0.55; pointer-events: none; color: var(--text-dim); }
 
-  .sktoolbar { padding: 8px 12px; border-bottom: 1px solid #2a2f37;
-               background: #1c2128; display: flex; gap: 8px; align-items: center; }
-  .sktoolbar select { background: #0f1318; color: #e6e8eb;
-                      border: 1px solid #2a2f37; border-radius: 4px;
+  .sktoolbar { padding: 8px 12px; border-bottom: 1px solid var(--border);
+               background: var(--bg-3); display: flex; gap: 8px; align-items: center; }
+  .sktoolbar select { background: var(--bg-input); color: var(--text);
+                      border: 1px solid var(--border); border-radius: 4px;
                       padding: 4px 8px; font-size: 12px; }
   .skbody { flex: 1; display: grid; grid-template-columns: 1fr 300px;
             min-height: 0; }
   .skview { padding: 16px; display: flex; align-items: center;
-            justify-content: center; background: #10141a; overflow: auto; }
+            justify-content: center; background: var(--bg-input); overflow: auto; }
   .skview svg { max-width: 100%; max-height: 100%; }
-  .skinfo { padding: 12px 14px; border-left: 1px solid #2a2f37;
-            background: #181c22; overflow: auto; font-family: ui-monospace, monospace;
-            font-size: 11px; white-space: pre-wrap; }
+  .skinfo { padding: 12px 14px; border-left: 1px solid var(--border);
+            background: var(--bg-2); overflow: auto;
+            font-family: ui-monospace, monospace; font-size: 11px;
+            white-space: pre-wrap; color: var(--text); }
   .infopane { flex: 1; padding: 16px 18px; overflow: auto;
               font-family: ui-monospace, monospace; font-size: 12px;
-              white-space: pre-wrap; line-height: 1.5; }
+              white-space: pre-wrap; line-height: 1.5; color: var(--text); }
 
-  #toolbar input[type="range"] { accent-color: #2c5fb3; }
+  #toolbar input[type="range"] { accent-color: var(--accent); }
   #toolbar input[type="number"], #toolbar select,
   .sktoolbar input[type="number"], .sktoolbar select {
-    background: #0f1318; color: #e6e8eb; border: 1px solid #2a2f37;
-    border-radius: 4px; padding: 4px 6px; font-size: 12px;
-    font-family: inherit;
+    background: var(--bg-input); color: var(--text);
+    border: 1px solid var(--border); border-radius: 4px; padding: 4px 6px;
+    font-size: 12px; font-family: inherit;
   }
   #toolbar label, .sktoolbar label { font-size: 12px; opacity: 0.75;
-    display: flex; align-items: center; gap: 4px; }
-  #toolbar button.active { background: #2c5fb3; border-color: #2c5fb3; color: #fff; }
+    display: flex; align-items: center; gap: 4px; color: var(--text); }
+  #toolbar button.active { background: var(--accent); border-color: var(--accent);
+    color: #fff; }
 
-  .mode { background: #232932; color: #cfd3dc; border: 1px solid #2a2f37;
-          border-radius: 4px; padding: 3px 9px; font-size: 11px; cursor: pointer;
-          font-family: inherit; }
-  .mode:hover { background: #2d343f; }
-  .mode.active { background: #2c5fb3; color: #fff; border-color: #2c5fb3; }
-  .msg.plan { color: #d6c08f; font-family: ui-monospace, monospace; font-size: 11px;
-              background: #1a1610; border-left: 2px solid #6b5a30; padding: 6px 8px;
+  .mode { background: var(--bg-2); color: var(--text-dim);
+          border: 1px solid var(--border); border-radius: 4px;
+          padding: 3px 9px; font-size: 11px; cursor: pointer; font-family: inherit; }
+  .mode:hover { background: var(--bg-3); }
+  .mode.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .msg.plan { color: var(--plan-fg); font-family: ui-monospace, monospace;
+              font-size: 11px; background: var(--plan-bg);
+              border-left: 2px solid var(--plan-border); padding: 6px 8px;
               border-radius: 0 4px 4px 0; }
-  .msg.critic { color: #ff9a8a; }
-  .msg.critic.done   { color: #8fb98f; }
-  .msg.system { color: #8fa3c0; font-size: 11px; font-style: italic; }
+  .msg.critic { color: #d27066; }
+  .msg.critic.done { color: var(--ops-fg); }
+  .msg.system { color: var(--text-dim); font-size: 11px; font-style: italic; }
 
   .bomtable { width: 100%; border-collapse: collapse; font-size: 12px;
-              font-family: ui-monospace, monospace; }
+              font-family: ui-monospace, monospace; color: var(--text); }
   .bomtable th, .bomtable td { padding: 6px 10px; text-align: left;
-              border-bottom: 1px solid #2a2f37; }
-  .bomtable th { background: #1c2128; color: #cfd3dc; font-weight: 600;
+              border-bottom: 1px solid var(--border); }
+  .bomtable th { background: var(--bg-3); color: var(--text-dim); font-weight: 600;
               position: sticky; top: 0; }
   .bomtable td.num { text-align: right; }
-  .swatch { display: inline-block; width: 16px; height: 16px;
-            border-radius: 3px; border: 1px solid #2a2f37; vertical-align: middle; }
+  .swatch { display: inline-block; width: 16px; height: 16px; border-radius: 3px;
+            border: 1px solid var(--border); vertical-align: middle; }
 </style>
 </head>
 <body>
 <div id="root">
   <div id="side">
-    <div id="title">Chat CAD <small id="kstat">parser mode</small></div>
+    <div id="title">
+      <span>Chat CAD <small id="kstat">parser mode</small></span>
+      <button id="themeToggle" class="mode" title="Toggle light / dark theme"
+              style="margin-left:auto">Light</button>
+    </div>
     <div id="settings">
       <label>API key (Anthropic or Google AI — optional)
         <input id="apikey" type="password" placeholder="sk-ant-... or AIza... (Google AI, free)" />
@@ -144,6 +177,10 @@
       <span style="opacity:0.6">Mode:</span>
       <button id="modeChat"   class="mode active">Chat</button>
       <button id="modeAgent"  class="mode">Design Agent</button>
+      <label style="font-size:10px;opacity:0.7;margin-left:8px">
+        <input type="checkbox" id="autoClear" checked style="vertical-align:middle"/>
+        clear scene first
+      </label>
       <span style="flex:1"></span>
       <span id="modeHint" style="opacity:0.55;font-size:10px">single-turn commands</span>
     </div>
@@ -289,6 +326,41 @@ apikeyEl.addEventListener('input',  () => { localStorage.setItem('cc_apikey', ap
 apikeyEl.addEventListener('change', () => { localStorage.setItem('cc_apikey', apikeyEl.value); refreshKstat(); });
 modelEl .addEventListener('change', () => { localStorage.setItem('cc_model',  modelEl.value); });
 
+// ----- theme toggle -----
+const themeBtn = document.getElementById('themeToggle');
+function applyTheme(t) {
+  if (t === 'light') document.documentElement.classList.add('light');
+  else                document.documentElement.classList.remove('light');
+  themeBtn.textContent = t === 'light' ? 'Dark' : 'Light';
+  // update Three.js scene background and grid colours if scene is ready
+  if (typeof scene !== 'undefined') {
+    scene.background = new THREE.Color(t === 'light' ? 0xf0f3f7 : 0x171b22);
+    if (scene.fog) scene.fog.color = new THREE.Color(t === 'light' ? 0xf0f3f7 : 0x171b22);
+    if (typeof grid !== 'undefined') {
+      scene.remove(grid);
+      const major = t === 'light' ? 0xc0c6cd : 0x4a5060;
+      const minor = t === 'light' ? 0xe0e4ea : 0x2a2f37;
+      const g = new THREE.GridHelper(400, 40, major, minor);
+      g.rotation.x = Math.PI / 2;
+      scene.add(g);
+      grid = g;
+    }
+  }
+  localStorage.setItem('cc_theme', t);
+}
+themeBtn.addEventListener('click', () => {
+  const cur = document.documentElement.classList.contains('light') ? 'light' : 'dark';
+  applyTheme(cur === 'light' ? 'dark' : 'light');
+});
+applyTheme(localStorage.getItem('cc_theme') || 'dark');
+
+// ----- auto-clear on new Design Agent brief -----
+const autoClearEl = document.getElementById('autoClear');
+autoClearEl.checked = (localStorage.getItem('cc_autoclear') ?? 'true') === 'true';
+autoClearEl.addEventListener('change', () => {
+  localStorage.setItem('cc_autoclear', String(autoClearEl.checked));
+});
+
 // ----- tabs -----
 const tabs = document.querySelectorAll('.tab');
 const panes = { '3d': document.getElementById('pane3d'),
@@ -391,7 +463,7 @@ ground.receiveShadow = true;
 scene.add(ground);
 
 // Grid on XY plane (default GridHelper is on XZ, so rotate)
-const grid = new THREE.GridHelper(400, 40, 0x4a5060, 0x2a2f37);
+let grid = new THREE.GridHelper(400, 40, 0x4a5060, 0x2a2f37);
 grid.rotation.x = Math.PI / 2;
 scene.add(grid);
 scene.add(new THREE.AxesHelper(40));
@@ -746,8 +818,13 @@ const sendBtn = document.getElementById('send');
 async function sendAgent(text) {
   addMsg('user', 'brief', text);
   if (!apikeyEl.value) {
-    addMsg('bot', 'error', 'Design Agent needs an Anthropic API key (the visual critic uses Claude vision). Paste one in the settings panel above.');
+    addMsg('bot', 'error', 'Design Agent needs an API key (Anthropic sk-ant-... or Google AI AIza...). Paste one in the settings panel above.');
     return;
+  }
+  if (autoClearEl.checked) {
+    await fetch('/reset', { method: 'POST' });
+    addMsg('system', 'agent', 'scene cleared for new design');
+    reloadScene();
   }
   addMsg('system', 'agent', 'starting design loop...');
   const res = await fetch('/agent/design', {
