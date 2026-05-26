@@ -387,8 +387,10 @@
         <button id="gizmoRot"  title="Drag rings to rotate selected part">Rotate</button>
         <button id="gizmoOff"  title="Hide gizmo">Off</button></span>
 
-        <span data-rib="sim"><button id="feaRun"    title="Run FEA on selected part">Run FEA (stress)</button>
-        <button id="thermalRun" title="Run heat-transfer / thermal analysis">Run thermal</button></span>
+        <span data-rib="sim"><button id="feaRun"    title="Run linear-elastic FEA on selected part">Run FEA (stress)</button>
+        <button id="thermalRun" title="Run steady-state heat conduction">Run thermal</button>
+        <button id="modalRun"   title="Compute natural frequencies of the selected part">Run modal</button>
+        <button id="cfdRun"     title="2D Stokes flow around selected part's silhouette">Run CFD (2D)</button></span>
 
         <span data-rib="render"><label style="font-size:11px">Material
         <select id="matPreset" style="margin-left:4px">
@@ -1298,6 +1300,54 @@ document.getElementById('thermalRun').addEventListener('click', async () => {
       `gradient: ${d.grad_max?.toFixed(2)}°C/mm. (${d.n_nodes} nodes, ${d.n_elems} elements)`);
   } catch (e) {
     addMsg('bot', 'error', 'thermal call failed: ' + String(e));
+  }
+});
+
+// ----- Modal analysis button -----
+document.getElementById('modalRun').addEventListener('click', async () => {
+  if (!_selected) {
+    addMsg('bot', 'error', 'Select a part first (click it in the viewport or feature tree).');
+    return;
+  }
+  addMsg('system', 'modal', `running modal analysis on '${_selected.name}' (computing first 6 natural frequencies)...`);
+  try {
+    const r = await fetch('/fea/modal', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ part: _selected.name, n_modes: 6 }),
+    });
+    const d = await r.json();
+    if (d.error) { addMsg('bot', 'error', 'modal: ' + d.error); return; }
+    const fs = (d.frequencies_Hz || []).map(f =>
+      f >= 1000 ? (f/1000).toFixed(2) + ' kHz' : f.toFixed(1) + ' Hz').join(', ');
+    addMsg('bot', 'modal',
+      `done. First ${d.n_modes} natural frequencies: ${fs}. ` +
+      `(${d.n_nodes} nodes, ${d.n_elems} elements, ${d.material})`);
+  } catch (e) {
+    addMsg('bot', 'error', 'modal call failed: ' + String(e));
+  }
+});
+
+// ----- 2D CFD button (Stokes flow around silhouette) -----
+document.getElementById('cfdRun').addEventListener('click', async () => {
+  if (!_selected) {
+    addMsg('bot', 'error', 'Select a part first.');
+    return;
+  }
+  addMsg('system', 'cfd', `running 2D Stokes flow around '${_selected.name}' (inlet 1 m/s, water-viscosity)...`);
+  try {
+    const r = await fetch('/cfd/run', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ part: _selected.name, inlet_velocity: 1.0,
+                             viscosity: 1.0e-3, axis: 'Z' }),
+    });
+    const d = await r.json();
+    if (d.error) { addMsg('bot', 'error', 'CFD: ' + d.error); return; }
+    addMsg('bot', 'cfd',
+      `done. Max velocity: ${d.max_velocity?.toFixed(3)} m/s. ` +
+      `Pressure drop: ${d.pressure_drop?.toFixed(2)} Pa. ` +
+      `(${d.n_nodes} nodes, ${d.n_tris} triangles, Stokes 2D)`);
+  } catch (e) {
+    addMsg('bot', 'error', 'CFD call failed: ' + String(e));
   }
 });
 

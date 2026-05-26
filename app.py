@@ -385,6 +385,58 @@ def fea_run():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/fea/modal", methods=["POST"])
+def fea_modal():
+    """Modal analysis: returns the first N natural frequencies of the part
+    (rigid-body modes filtered out). Free-free boundary conditions.
+    """
+    data = request.get_json(force=True)
+    part = (data.get("part") or "").strip()
+    n_modes = int(data.get("n_modes", 6))
+    if not part:
+        return jsonify({"error": "part is required"}), 400
+    with _lock:
+        if part not in engine.parts:
+            return jsonify({"error": f"no part '{part}'"}), 404
+        material = engine.materials.material_of(part) if hasattr(engine, "materials") else "default"
+        try:
+            stl_path = engine.export_part_stl(part)
+        except Exception as e:
+            return jsonify({"error": f"could not export STL: {e}"}), 500
+    try:
+        from fea import run_modal
+        return jsonify(run_modal(stl_path, material, n_modes))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/cfd/run", methods=["POST"])
+def cfd_run():
+    """2D steady Stokes flow around the part's XY silhouette. Real PDE
+    solve via Taylor-Hood elements (P2-velocity / P1-pressure). Returns
+    max velocity + pressure drop. Stokes regime only (Re << 1).
+    """
+    data = request.get_json(force=True)
+    part = (data.get("part") or "").strip()
+    U = float(data.get("inlet_velocity", 1.0))
+    mu = float(data.get("viscosity", 1.0e-3))
+    axis = (data.get("axis") or "Z").strip().upper()
+    if not part:
+        return jsonify({"error": "part is required"}), 400
+    with _lock:
+        if part not in engine.parts:
+            return jsonify({"error": f"no part '{part}'"}), 404
+        try:
+            stl_path = engine.export_part_stl(part)
+        except Exception as e:
+            return jsonify({"error": f"could not export STL: {e}"}), 500
+    try:
+        from fea import run_cfd_2d
+        return jsonify(run_cfd_2d(stl_path, U, mu, axis))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/fea/thermal", methods=["POST"])
 def fea_thermal():
     """Steady-state heat conduction on the named part. Hot face fixed at

@@ -45,3 +45,17 @@ def run_thermal(stl_path: str, t_hot: float = 100.0, t_cold: float = 20.0,
     if not os.path.exists(stl_path):
         return {"error": f"STL not found at {stl_path}"}
     return _run_worker(["thermal", stl_path, str(t_hot), str(t_cold), axis])
+
+
+def run_modal(stl_path: str, material: str = "aluminum",
+              n_modes: int = 6) -> dict:
+    if not os.path.exists(stl_path):
+        return {"error": f"STL not found at {stl_path}"}
+    return _run_worker(["modal", stl_path, material, str(n_modes)])
+
+
+def run_cfd_2d(stl_path: str, inlet_velocity: float = 1.0,
+               viscosity: float = 1.0e-3, axis: str = "Z") -> dict:
+    if not os.path.exists(stl_path):
+        return {"error": f"STL not found at {stl_path}"}
+    return _run_worker(["cfd", stl_path, str(inlet_velocity), str(viscosity), axis])
