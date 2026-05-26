@@ -384,8 +384,12 @@ tabs.forEach(t => t.addEventListener('click', () => {
 // ----- three.js scene -----
 const canvas = document.getElementById('canvas');
 const view   = document.getElementById('pane3d');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-renderer.setPixelRatio(window.devicePixelRatio);
+const renderer = new THREE.WebGLRenderer({
+  canvas, antialias: true, powerPreference: 'high-performance',
+  stencil: false, alpha: false,
+});
+// Cap at 2 so 4K monitors don't tank performance; bump above default 1 for crisper edges
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;

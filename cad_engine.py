@@ -490,12 +490,16 @@ class CadEngine:
         return path
 
     def export_part_stl(self, name: str) -> str:
-        """Export one part to <name>.stl and return the absolute path."""
+        """Export one part to <name>.stl with fine tessellation (smoother
+        curved surfaces in the viewer). Returns the absolute path.
+        """
         self._require(name)
-        # filesystem-safe name
         safe = "".join(c if c.isalnum() or c in "._-" else "_" for c in name)
         path = os.path.join(self.output_dir, f"part_{safe}.stl")
-        cq.exporters.export(self.parts[name], path, exportType="STL")
+        # tolerance: lower = more triangles, smoother curves.
+        # 0.05 mm linear + 0.1 rad angular is high-res but still fast.
+        cq.exporters.export(self.parts[name], path, exportType="STL",
+                            tolerance=0.05, angularTolerance=0.1)
         return path
 
     def manifest(self) -> list[dict]:
