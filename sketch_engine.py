@@ -55,7 +55,11 @@ class SketchEngine:
     # ----- access ----- #
     def _s(self, name: str) -> Sketch:
         if name not in self.sketches:
-            raise KeyError(f"no sketch '{name}'. existing: {list(self.sketches)}")
+            existing = list(self.sketches)
+            hint = f"  →  run 'sk new {name} XY' first to create it"
+            if existing:
+                hint += f"  (existing sketches: {existing})"
+            raise KeyError(f"no sketch '{name}'.\n{hint}")
         return self.sketches[name]
 
     def _require_point(self, sk: Sketch, p: str) -> None:

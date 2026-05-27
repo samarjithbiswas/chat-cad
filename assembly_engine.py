@@ -95,7 +95,11 @@ class AssemblyEngine:
 
     def _a(self, name: str) -> dict:
         if name not in self.assemblies:
-            raise KeyError(f"no assembly '{name}'. existing: {list(self.assemblies)}")
+            existing = list(self.assemblies)
+            hint = f"  →  run 'asm new {name}' first to create it"
+            if existing:
+                hint += f"  (existing assemblies: {existing})"
+            raise KeyError(f"no assembly '{name}'.\n{hint}")
         return self.assemblies[name]
 
     # ----- structure ----- #
@@ -106,9 +110,18 @@ class AssemblyEngine:
     def add_component(self, assembly: str, component: str, part: str,
                       x: float = 0, y: float = 0, z: float = 0,
                       rx: float = 0, ry: float = 0, rz: float = 0) -> str:
-        a = self._a(assembly)
+        # Friendly: auto-create the assembly if the user skipped 'asm new'
+        if assembly not in self.assemblies:
+            self.new(assembly)
+        a = self.assemblies[assembly]
         if part not in self.parts_ref:
-            raise KeyError(f"no part '{part}' in scene")
+            available = list(self.parts_ref.keys())
+            hint = (f"  →  no part named '{part}' exists in the scene yet.\n"
+                    f"     Build it first, e.g. 'box {part} 20 20 20' or "
+                    f"'cyl {part} 5 30'.")
+            if available:
+                hint += f"\n     Existing parts: {available}"
+            raise KeyError(hint)
         a["comps"][component] = {
             "part": part,
             "x": float(x), "y": float(y), "z": float(z),

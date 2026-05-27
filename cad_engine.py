@@ -49,7 +49,13 @@ class CadEngine:
 
     def _require(self, name: str) -> cq.Workplane:
         if name not in self.parts:
-            raise KeyError(f"no part named '{name}'. existing: {list(self.parts)}")
+            existing = list(self.parts)
+            hint = (f"  →  '{name}' doesn't exist yet. Build it first, e.g. "
+                    f"'box {name} 20 20 20', 'cyl {name} 8 30', "
+                    f"or 'turbojet {name} 100 400' for a full engine.")
+            if existing:
+                hint += f"\n     Existing parts: {existing}"
+            raise KeyError(f"no part named '{name}'.\n{hint}")
         return self.parts[name]
 
     # ---------- primitives ----------
