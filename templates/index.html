@@ -394,7 +394,9 @@
         <span data-rib="sim"><button id="feaRun"    title="Run linear-elastic FEA on selected part">Run FEA (stress)</button>
         <button id="thermalRun" title="Run steady-state heat conduction">Run thermal</button>
         <button id="modalRun"   title="Compute natural frequencies of the selected part">Run modal</button>
-        <button id="cfdRun"     title="2D Stokes flow around selected part's silhouette">Run CFD (2D)</button></span>
+        <button id="cfdRun"     title="2D Stokes flow around selected part's silhouette">Run CFD (2D)</button>
+        <span style="width:1px;height:18px;background:var(--border);margin:0 4px"></span>
+        <button id="acousticDesignBtn" title="Inverse-design a phononic-crystal unit cell that achieves a target acoustic bandgap (chat_cad ⇄ PhononIQ wedge)" style="background:linear-gradient(135deg,#5b21b6,#7c3aed);color:#fff;font-weight:600">Inverse acoustic design</button></span>
 
         <span data-rib="render"><label style="font-size:11px">Material
         <select id="matPreset" style="margin-left:4px">
@@ -1444,6 +1446,57 @@ document.getElementById('verifyBtn').addEventListener('click', async () => {
       (fixes   ? `Suggested fixes:\n${fixes}`         : ''));
   } catch (e) {
     addMsg('bot', 'error', 'verify call failed: ' + String(e));
+  }
+});
+
+// ----- Inverse acoustic design (the PhononIQ wedge) -----
+document.getElementById('acousticDesignBtn').addEventListener('click', async () => {
+  const lo = prompt(
+    "Target acoustic bandgap — LOW edge in Hz?\n\n" +
+    "Examples:\n  Cabin noise: 200\n  Speech band: 500\n  Engine drone: 100",
+    "200");
+  if (lo === null) return;
+  const hi = prompt(
+    "Target HIGH edge in Hz?\n\n" +
+    "(Bandgap = blocked frequency range)",
+    "500");
+  if (hi === null) return;
+  const name = prompt("Part name for the lattice?", "panel");
+  if (name === null) return;
+  addMsg('user', 'brief',
+    `inverse-design a phononic panel that blocks ${lo}–${hi} Hz`);
+  addMsg('system', 'design',
+    `searching 5 unit-cell families × coordinate descent... (placeholder bandgap estimator — wire PhononIQ surrogate for production accuracy)`);
+  try {
+    const r = await fetch('/acoustic_design', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        target_lo_Hz: Number(lo), target_hi_Hz: Number(hi),
+        name: name.trim() || 'panel', nx: 6, ny: 6,
+      }),
+    });
+    const d = await r.json();
+    if (d.error) { addMsg('bot', 'error', 'inverse design: ' + d.error); return; }
+    const b = d.best;
+    const others = (d.all_candidates || [])
+      .filter(c => c.family !== b.family)
+      .sort((a, c) => c.score - a.score)
+      .map(c => `  - ${c.family}: a=${c.a_mm.toFixed(1)} t=${c.t_mm.toFixed(1)} p=${c.param_mm.toFixed(1)} → ${(c.pred_lo_Hz/1000).toFixed(1)}-${(c.pred_hi_Hz/1000).toFixed(1)} kHz (miss ${c.miss_percent.toFixed(0)}%)`)
+      .join('\n');
+    addMsg('bot', 'design',
+      `✓ BEST: ${b.family}\n` +
+      `  lattice constant a = ${b.a_mm.toFixed(2)} mm\n` +
+      `  plate thickness  t = ${b.t_mm.toFixed(2)} mm\n` +
+      `  feature size     p = ${b.param_mm.toFixed(2)} mm\n` +
+      `  predicted band: ${(b.predicted_lo_Hz/1000).toFixed(2)}–${(b.predicted_hi_Hz/1000).toFixed(2)} kHz\n` +
+      `  match score: ${(b.match_score*100).toFixed(0)}%  (miss ${b.miss_percent.toFixed(1)}%)\n\n` +
+      `Built as 6×6 lattice → part '${d.built_part}'\n` +
+      `Search took ${d.duration_ms.toFixed(0)} ms across 5 families.\n\n` +
+      `Other candidates considered:\n${others}\n\n` +
+      `${d.note}`);
+    reloadScene(); refreshFeatureTree();
+  } catch (e) {
+    addMsg('bot', 'error', 'inverse design call failed: ' + String(e));
   }
 });
 

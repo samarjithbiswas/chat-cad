@@ -410,6 +410,42 @@ def fea_modal():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/acoustic_design", methods=["POST"])
+def acoustic_design():
+    """Inverse-design endpoint: given a target frequency window, search
+    across phononic unit-cell families for the best parametric match and
+    build the result in the scene.
+    """
+    data = request.get_json(force=True)
+    try:
+        target_lo = float(data.get("target_lo_Hz") or 0)
+        target_hi = float(data.get("target_hi_Hz") or 0)
+    except Exception:
+        return jsonify({"error": "target_lo_Hz and target_hi_Hz required"}), 400
+    if target_hi <= target_lo or target_lo <= 0:
+        return jsonify({"error": "invalid target band"}), 400
+    name = (data.get("name") or "design").strip() or "design"
+    nx = int(data.get("nx", 6))
+    ny = int(data.get("ny", 6))
+
+    with _lock:
+        from inverse_design import (
+            design_acoustic_metamaterial,
+            build_geometry_from_candidate,
+        )
+        result = design_acoustic_metamaterial(target_lo, target_hi)
+        if not result.get("ok"):
+            return jsonify(result), 400
+        try:
+            build_geometry_from_candidate(engine, name, result["best"], nx, ny)
+            _refresh_stl()
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e), "result": result}), 500
+        result["built_part"] = name
+        result["lattice"] = [nx, ny]
+        return jsonify(result)
+
+
 @app.route("/sketch_upload", methods=["POST"])
 def sketch_upload():
     """Upload a 2D image (hand sketch / technical drawing / silhouette
