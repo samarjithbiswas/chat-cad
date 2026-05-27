@@ -83,8 +83,11 @@ def _coordinate_descent(family: str,
                 if axis == "a": cand = _candidate(family, trial, t, p, target_lo, target_hi)
                 if axis == "t": cand = _candidate(family, a, trial, p, target_lo, target_hi)
                 if axis == "p": cand = _candidate(family, a, t, trial, target_lo, target_hi)
-                # Reject if param violates geometry (param < a, t reasonable)
-                if cand.param >= cand.a * 0.95 or cand.t <= 0.2 or cand.a <= 1.0:
+                # Reject geometric violations only; let the lattice grow to
+                # whatever Bragg physics demands (auto-fit camera handles
+                # visibility for large lattices).
+                if cand.param >= cand.a * 0.95 or cand.t <= 0.2 \
+                   or cand.a <= 1.0:
                     continue
                 if cand.score > best.score + 1e-4:
                     best = cand

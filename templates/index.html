@@ -1483,6 +1483,10 @@ document.getElementById('acousticDesignBtn').addEventListener('click', async () 
       .sort((a, c) => c.score - a.score)
       .map(c => `  - ${c.family}: a=${c.a_mm.toFixed(1)} t=${c.t_mm.toFixed(1)} p=${c.param_mm.toFixed(1)} → ${(c.pred_lo_Hz/1000).toFixed(1)}-${(c.pred_hi_Hz/1000).toFixed(1)} kHz (miss ${c.miss_percent.toFixed(0)}%)`)
       .join('\n');
+    const lattice_size_mm = b.a_mm * 6;  // 6x6 default
+    const size_warning = lattice_size_mm > 250
+      ? `\n⚠ Lattice spans ~${lattice_size_mm.toFixed(0)} mm — Bragg physics at this frequency requires a large unit cell. Use the Fit view button if off-screen.`
+      : '';
     addMsg('bot', 'design',
       `✓ BEST: ${b.family}\n` +
       `  lattice constant a = ${b.a_mm.toFixed(2)} mm\n` +
@@ -1490,11 +1494,19 @@ document.getElementById('acousticDesignBtn').addEventListener('click', async () 
       `  feature size     p = ${b.param_mm.toFixed(2)} mm\n` +
       `  predicted band: ${(b.predicted_lo_Hz/1000).toFixed(2)}–${(b.predicted_hi_Hz/1000).toFixed(2)} kHz\n` +
       `  match score: ${(b.match_score*100).toFixed(0)}%  (miss ${b.miss_percent.toFixed(1)}%)\n\n` +
-      `Built as 6×6 lattice → part '${d.built_part}'\n` +
+      `Built as 6×6 lattice → part '${d.built_part}'` + size_warning + `\n` +
       `Search took ${d.duration_ms.toFixed(0)} ms across 5 families.\n\n` +
       `Other candidates considered:\n${others}\n\n` +
       `${d.note}`);
     reloadScene(); refreshFeatureTree();
+    // auto-fit camera to the new (possibly very large) lattice
+    setTimeout(() => {
+      if (typeof frameScene === 'function') {
+        _autoframed = false;
+        frameScene();
+        _autoframed = true;
+      }
+    }, 600);
   } catch (e) {
     addMsg('bot', 'error', 'inverse design call failed: ' + String(e));
   }
