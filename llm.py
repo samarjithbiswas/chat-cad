@@ -1190,6 +1190,9 @@ def _parse_asm(engine: CadEngine, a: list[str]) -> str:
         return am.add_mate(r[0], r[1], r[2], r[3])
     if sub == "solve":
         return am.solve(r[0])
+    if sub == "place":
+        # Move source parts into their placed positions (no compound)
+        return am.place_parts(r[0])
     if sub == "info":
         return am.info(r[0])
     if sub == "list":

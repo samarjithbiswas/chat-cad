@@ -1121,22 +1121,28 @@ const MATERIAL_PRESETS = {
 function makePresetMaterial(presetName, fallbackColor) {
   const cfg = MATERIAL_PRESETS[presetName] || MATERIAL_PRESETS['default'];
   const color = cfg.color !== undefined ? cfg.color : (fallbackColor || 0x6aa7ff);
-  // copy cfg without 'color' for spread (we set color above)
   const props = { color, ...cfg };
-  return new THREE.MeshPhysicalMaterial(props);
+  const mat = new THREE.MeshPhysicalMaterial(props);
+  // Explicitly wire the IBL envmap so polished metallic presets reflect.
+  if (scene.environment) {
+    mat.envMap = scene.environment;
+    mat.envMapIntensity = cfg.envMapIntensity ?? 1.0;
+  }
+  mat.needsUpdate = true;
+  return mat;
 }
 
 function applyPresetToMesh(mesh, presetName) {
   if (!mesh || !mesh.isMesh) return;
   const oldColor = mesh.material.color?.getHex?.() ?? 0x6aa7ff;
   const newMat = makePresetMaterial(presetName, oldColor);
-  // preserve emissive selection highlight if active
   if (mesh.material.emissive && mesh.material.emissiveIntensity > 0) {
     newMat.emissive = mesh.material.emissive.clone();
     newMat.emissiveIntensity = mesh.material.emissiveIntensity;
   }
   mesh.material.dispose();
   mesh.material = newMat;
+  mesh.material.needsUpdate = true;
 }
 
 document.getElementById('matApplySel').addEventListener('click', () => {
@@ -1246,42 +1252,71 @@ document.getElementById('viewTop').addEventListener('click',
 document.getElementById('viewRight').addEventListener('click',
   () => snapView([1, 0, 0], [0, 0, 1]));
 
-// ----- exploded view -----
-// Records each mesh's original position when "Explode" is clicked, moves each
-// outward from the scene centroid by a factor. "Collapse" restores positions.
-// Pure-viewport effect; doesn't touch CadQuery geometry.
+// ----- ANIMATED exploded view -----
+// Tweens each part outward from the scene centroid over ~800 ms with an
+// ease-out cubic. Pure-viewport effect; doesn't touch CadQuery geometry.
 let _explodeSaved = null;
+let _explodeAnim = null;
+
+function _easeOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
+
+function _animatePositions(plan, duration_ms = 900) {
+  // plan: Array<{ mesh, from: Vector3, to: Vector3 }>
+  if (_explodeAnim) cancelAnimationFrame(_explodeAnim);
+  const start = performance.now();
+  function step(now) {
+    const t = Math.min(1, (now - start) / duration_ms);
+    const e = _easeOutCubic(t);
+    for (const p of plan) {
+      const x = p.from.x + (p.to.x - p.from.x) * e;
+      const y = p.from.y + (p.to.y - p.from.y) * e;
+      const z = p.from.z + (p.to.z - p.from.z) * e;
+      p.mesh.position.set(x, y, z);
+      const edges = partGroup.children.find(o => o.name === p.mesh.name + '__edges');
+      if (edges) edges.position.set(x, y, z);
+    }
+    if (t < 1) _explodeAnim = requestAnimationFrame(step);
+    else _explodeAnim = null;
+  }
+  _explodeAnim = requestAnimationFrame(step);
+}
+
 document.getElementById('explodeBtn').addEventListener('click', () => {
   const meshes = partGroup.children.filter(o => o.isMesh);
   if (!meshes.length) return;
-  // compute scene centroid from bbox centers
-  const sceneCenter = new THREE.Vector3();
+  // scene centroid = average of bbox centres
+  const centroid = new THREE.Vector3();
   meshes.forEach(m => {
-    const c = new THREE.Box3().setFromObject(m).getCenter(new THREE.Vector3());
-    sceneCenter.add(c);
+    centroid.add(new THREE.Box3().setFromObject(m).getCenter(new THREE.Vector3()));
   });
-  sceneCenter.divideScalar(meshes.length);
+  centroid.divideScalar(meshes.length);
+  // scale explode distance to scene size for parts of any size
+  const sceneBox = new THREE.Box3();
+  meshes.forEach(m => sceneBox.expandByObject(m));
+  const sceneSize = sceneBox.getSize(new THREE.Vector3()).length();
+  const distance = Math.max(20, sceneSize * 0.35);
   _explodeSaved = new Map();
+  const plan = [];
   for (const m of meshes) {
     _explodeSaved.set(m.name, m.position.clone());
     const c = new THREE.Box3().setFromObject(m).getCenter(new THREE.Vector3());
-    const dir = c.clone().sub(sceneCenter).normalize();
-    if (dir.lengthSq() < 0.001) continue;  // part is at centroid, skip
-    m.position.add(dir.multiplyScalar(40));  // 40 mm outward
-    const edges = partGroup.children.find(o => o.name === m.name + '__edges');
-    if (edges) edges.position.copy(m.position);
+    const dir = c.clone().sub(centroid);
+    if (dir.lengthSq() < 0.001) continue;
+    dir.normalize();
+    const to = m.position.clone().add(dir.multiplyScalar(distance));
+    plan.push({ mesh: m, from: m.position.clone(), to });
   }
+  _animatePositions(plan, 900);
 });
+
 document.getElementById('unexplodeBtn').addEventListener('click', () => {
   if (!_explodeSaved) return;
+  const plan = [];
   for (const m of partGroup.children.filter(o => o.isMesh)) {
     const orig = _explodeSaved.get(m.name);
-    if (orig) {
-      m.position.copy(orig);
-      const edges = partGroup.children.find(o => o.name === m.name + '__edges');
-      if (edges) edges.position.copy(orig);
-    }
+    if (orig) plan.push({ mesh: m, from: m.position.clone(), to: orig });
   }
+  _animatePositions(plan, 700);
   _explodeSaved = null;
 });
 

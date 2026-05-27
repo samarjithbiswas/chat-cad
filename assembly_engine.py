@@ -185,6 +185,32 @@ class AssemblyEngine:
             c["x"], c["y"], c["z"] = float(t.X()), float(t.Y()), float(t.Z())
 
     # ----- build ----- #
+    def place_parts(self, assembly: str) -> str:
+        """Move each component's underlying part to its placed location.
+        Unlike solve(), no compound is created — the SOURCE parts physically
+        relocate so they're visible at the right spots. This is what users
+        expect when they 'build' an assembly.
+        """
+        a = self._a(assembly)
+        moved = []
+        for comp_name, c in a["comps"].items():
+            part_name = c["part"]
+            if part_name not in self.parts_ref:
+                continue
+            part = self.parts_ref[part_name]
+            # rotation first (about origin), then translation
+            if c["rx"] != 0:
+                part = part.rotate((0, 0, 0), (1, 0, 0), c["rx"])
+            if c["ry"] != 0:
+                part = part.rotate((0, 0, 0), (0, 1, 0), c["ry"])
+            if c["rz"] != 0:
+                part = part.rotate((0, 0, 0), (0, 0, 1), c["rz"])
+            part = part.translate((c["x"], c["y"], c["z"]))
+            self.parts_ref[part_name] = part
+            moved.append(f"'{part_name}' -> ({c['x']:.1f},{c['y']:.1f},{c['z']:.1f})")
+        return (f"assembly '{assembly}': placed {len(moved)} component(s).\n  "
+                + "\n  ".join(moved))
+
     def solve(self, assembly: str) -> str:
         a = self._a(assembly)
         warn = ""
