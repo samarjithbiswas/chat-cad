@@ -22,6 +22,7 @@ from sheet_metal import SheetMetalEngine
 from knowledge import KnowledgeStore
 from assemblies_recipes import RecipesEngine
 from phononic import PhononicEngine
+from mechanical_lib_v2 import MechLibV2
 
 
 class CadEngine:
@@ -40,6 +41,7 @@ class CadEngine:
         self.knowledge = KnowledgeStore(os.path.join(output_dir, "..", "knowledge"))
         self.recipes = RecipesEngine(self)
         self.phononic = PhononicEngine(self)
+        self.mv2 = MechLibV2(self)
 
     # ---------- internal ----------
     def _snapshot(self) -> None:
@@ -563,6 +565,12 @@ def dispatch(engine: CadEngine, op: str, args: dict[str, Any]) -> str:
         fn = getattr(engine.sketches, sub, None)
         if fn is None or sub.startswith("_"):
             raise ValueError(f"unknown sketch op '{op}'")
+        return fn(**args)
+    if op.startswith("mv2_"):
+        sub = op[len("mv2_"):]
+        fn = getattr(engine.mv2, sub, None)
+        if fn is None or sub.startswith("_"):
+            raise ValueError(f"unknown mv2 op '{op}'")
         return fn(**args)
     if op.startswith("pc_"):
         sub = op[len("pc_"):]

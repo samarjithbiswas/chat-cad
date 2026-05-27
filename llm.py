@@ -1464,6 +1464,40 @@ def run_parser(engine: CadEngine, line: str) -> str:
             return engine.library.honeycomb(name, _f(L), _f(W), _f(T),
                                             cell, wall,
                                             xyz[0], xyz[1], xyz[2])
+        if cmd == "mv2":
+            # mv2 <subcommand> <name> <args...>
+            # The args are passed positionally to the matching mv2 method.
+            # Numbers are auto-converted; strings (e.g. M-specs, axis names)
+            # are passed as-is.
+            if not a:
+                return "usage: mv2 <component> <name> <args...>"
+            sub = a[0]
+            method = getattr(engine.mv2, sub, None)
+            if method is None or sub.startswith("_"):
+                return (f"unknown mv2 component '{sub}'. Examples: "
+                        "carriage_bolt, u_bolt, stud, castle_nut, acorn_nut, "
+                        "t_nut, knurled_nut, coupling_nut, rivet, "
+                        "tapered_bearing, thrust_bearing, needle_bearing, "
+                        "lm_block, sleeve_bushing, worm_gear, bevel_gear, "
+                        "helical_gear, rack_gear, timing_pulley, chain_link, "
+                        "oldham, bellows, tension_spring, torsion_spring, "
+                        "wave_spring, piston_ring, rocker_arm, push_rod, "
+                        "cylinder_head, manifold, oil_pan, water_impeller, "
+                        "heatsink, sheet_tab, louver, hex_standoff, gusset, "
+                        "z_bracket, pneu_cyl, ball_valve, check_valve, "
+                        "hose_barb, pipe_elbow, pipe_tee, pipe_flange, "
+                        "pipe_reducer, hose_clamp, p_clamp, knob, d_handle, "
+                        "lever, o_ring, gasket, retaining_ring, cooling_fan, "
+                        "magnet, tie_mount, plate, piston")
+            # parse remaining args: try float, fall back to string
+            parsed = []
+            for v in a[1:]:
+                try: parsed.append(_f(v))
+                except (ValueError, TypeError): parsed.append(v)
+            try:
+                return method(*parsed)
+            except TypeError as e:
+                return f"mv2 {sub}: {e}"
         if cmd == "pc":
             # pc <subcommand> <args...>
             sub = a[0].lower() if a else ""
