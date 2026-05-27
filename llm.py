@@ -1295,6 +1295,120 @@ def run_parser(engine: CadEngine, line: str) -> str:
             xyz = [_f(v) for v in rest[2:]] + [0, 0, 0]
             return engine.library.pulley(name, _f(od), _f(w), bore, belt_w,
                                          xyz[0], xyz[1], xyz[2])
+        # ---------------- extended fasteners ---------------- #
+        if cmd == "shcs":
+            name, spec, length, *rest = a
+            xyz = [_f(v) for v in rest] + [0, 0, 0]
+            return engine.library.shcs(name, spec, _f(length), xyz[0], xyz[1], xyz[2])
+        if cmd in ("button_screw", "buttonscrew"):
+            name, spec, length, *rest = a
+            xyz = [_f(v) for v in rest] + [0, 0, 0]
+            return engine.library.button_screw(name, spec, _f(length), xyz[0], xyz[1], xyz[2])
+        if cmd in ("flat_screw", "flatscrew"):
+            name, spec, length, *rest = a
+            xyz = [_f(v) for v in rest] + [0, 0, 0]
+            return engine.library.flat_screw(name, spec, _f(length), xyz[0], xyz[1], xyz[2])
+        if cmd in ("set_screw", "setscrew"):
+            name, spec, length, *rest = a
+            xyz = [_f(v) for v in rest] + [0, 0, 0]
+            return engine.library.set_screw(name, spec, _f(length), xyz[0], xyz[1], xyz[2])
+        if cmd in ("wing_nut", "wingnut"):
+            name, spec, *rest = a
+            xyz = [_f(v) for v in rest] + [0, 0, 0]
+            return engine.library.wing_nut(name, spec, xyz[0], xyz[1], xyz[2])
+        if cmd in ("eye_bolt", "eyebolt"):
+            name, spec, length, *rest = a
+            xyz = [_f(v) for v in rest] + [0, 0, 0]
+            return engine.library.eye_bolt(name, spec, _f(length), xyz[0], xyz[1], xyz[2])
+        if cmd in ("lock_washer", "lockwasher"):
+            # lock_washer <name> <spec> [split|star] [x y z]
+            name, spec, *rest = a
+            kind = rest[0] if rest and rest[0] in ("split", "star") else "split"
+            rest_xyz = rest[1:] if kind in ("split", "star") and rest else rest
+            xyz = [_f(v) for v in rest_xyz] + [0, 0, 0]
+            return engine.library.lock_washer(name, spec, kind, xyz[0], xyz[1], xyz[2])
+        if cmd in ("spring_washer", "springwasher"):
+            name, spec, *rest = a
+            xyz = [_f(v) for v in rest] + [0, 0, 0]
+            return engine.library.spring_washer(name, spec, xyz[0], xyz[1], xyz[2])
+        # ---------------- joints ---------------- #
+        if cmd in ("clevis_pin", "clevispin"):
+            name, d, L, *rest = a
+            xyz = [_f(v) for v in rest] + [0, 0, 0]
+            return engine.library.clevis_pin(name, _f(d), _f(L), xyz[0], xyz[1], xyz[2])
+        if cmd in ("rod_end", "rodend"):
+            # rod_end <name> <bore> [M-spec] [x y z]
+            name, bore, *rest = a
+            thread = rest[0] if rest and rest[0].upper().startswith("M") else "M8"
+            xyz_rest = rest[1:] if rest and rest[0].upper().startswith("M") else rest
+            xyz = [_f(v) for v in xyz_rest] + [0, 0, 0]
+            return engine.library.rod_end(name, _f(bore), thread, xyz[0], xyz[1], xyz[2])
+        if cmd in ("ujoint", "ujt"):
+            # ujoint <name> [yoke_d] [pin_d] [x y z]
+            name, *rest = a
+            yd = _f(rest[0]) if len(rest) > 0 else 20
+            pd = _f(rest[1]) if len(rest) > 1 else 6
+            xyz = [_f(v) for v in rest[2:]] + [0, 0, 0]
+            return engine.library.ujoint(name, yd, pd, xyz[0], xyz[1], xyz[2])
+        if cmd in ("jaw_coupling", "jawcoupling", "coupling"):
+            # coupling <name> <bore> [length] [od] [x y z]
+            name, bore, *rest = a
+            L = _f(rest[0]) if len(rest) > 0 else 40
+            od = _f(rest[1]) if len(rest) > 1 else 0
+            xyz = [_f(v) for v in rest[2:]] + [0, 0, 0]
+            return engine.library.jaw_coupling(name, _f(bore), L, od, xyz[0], xyz[1], xyz[2])
+        # ---------------- engine ---------------- #
+        if cmd == "crankshaft":
+            # crankshaft <name> <n_throws> <stroke> <journal_d> [x y z]
+            name, n, s, j, *rest = a
+            xyz = [_f(v) for v in rest] + [0, 0, 0]
+            return engine.library.crankshaft(name, int(n), _f(s), _f(j), xyz[0], xyz[1], xyz[2])
+        if cmd == "camshaft":
+            # camshaft <name> <n_lobes> <spacing> <lobe_d> [x y z]
+            name, n, sp, ld, *rest = a
+            xyz = [_f(v) for v in rest] + [0, 0, 0]
+            return engine.library.camshaft(name, int(n), _f(sp), _f(ld), xyz[0], xyz[1], xyz[2])
+        if cmd == "valve":
+            # valve <name> <stem_d> <head_d> <length> [x y z]
+            name, sd, hd, L, *rest = a
+            xyz = [_f(v) for v in rest] + [0, 0, 0]
+            return engine.library.valve(name, _f(sd), _f(hd), _f(L), xyz[0], xyz[1], xyz[2])
+        if cmd in ("spark_plug", "sparkplug", "plug"):
+            # spark_plug <name> [thread_d] [length] [x y z]
+            name, *rest = a
+            td = _f(rest[0]) if len(rest) > 0 else 14
+            L = _f(rest[1]) if len(rest) > 1 else 60
+            xyz = [_f(v) for v in rest[2:]] + [0, 0, 0]
+            return engine.library.spark_plug(name, td, L, xyz[0], xyz[1], xyz[2])
+        if cmd == "flywheel":
+            # flywheel <name> <od> <bore> <width> [n_holes] [x y z]
+            name, od, bore, w, *rest = a
+            n_holes = int(rest[0]) if len(rest) > 0 else 6
+            xyz = [_f(v) for v in rest[1:]] + [0, 0, 0]
+            return engine.library.flywheel(name, _f(od), _f(bore), _f(w),
+                                           n_holes, xyz[0], xyz[1], xyz[2])
+        if cmd == "sprocket":
+            # sprocket <name> <teeth> <pitch> <width> [bore] [x y z]
+            name, t, p, w, *rest = a
+            bore = _f(rest[0]) if len(rest) > 0 else 0
+            xyz = [_f(v) for v in rest[1:]] + [0, 0, 0]
+            return engine.library.sprocket(name, int(t), _f(p), _f(w), bore,
+                                           xyz[0], xyz[1], xyz[2])
+        # ---------------- mounts ---------------- #
+        if cmd in ("l_bracket", "lbracket"):
+            # l_bracket <name> <leg_a> <leg_b> <t> <width> [hole_d] [n_holes] [x y z]
+            name, la, lb, th, w, *rest = a
+            hd = _f(rest[0]) if len(rest) > 0 else 0
+            nh = int(rest[1]) if len(rest) > 1 else 0
+            xyz = [_f(v) for v in rest[2:]] + [0, 0, 0]
+            return engine.library.l_bracket(name, _f(la), _f(lb), _f(th), _f(w),
+                                            hd, nh, xyz[0], xyz[1], xyz[2])
+        if cmd in ("pillow_block", "pillowblock"):
+            # pillow_block <name> <bore> <length> <width> <height> [x y z]
+            name, bore, L, W, H, *rest = a
+            xyz = [_f(v) for v in rest] + [0, 0, 0]
+            return engine.library.pillow_block(name, _f(bore), _f(L), _f(W), _f(H),
+                                               xyz[0], xyz[1], xyz[2])
         if cmd == "turbine":
             # turbine <name> <blades> <od> <hub_d> <hub_t> [chord] [twist] [x y z]
             name, blades, od, hub_d, hub_t, *rest = a

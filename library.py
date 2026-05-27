@@ -518,6 +518,433 @@ def honeycomb_panel(length: float, width: float, thickness: float,
         return plate
 
 
+# ============================================================ #
+# Extended fastener library                                    #
+# ============================================================ #
+def socket_head_cap_screw(M_spec: str, length: float) -> cq.Workplane:
+    """Socket head cap screw (SHCS): cylindrical head with internal hex socket."""
+    d, (af, hh, _nh, _wo, _wt) = _m(M_spec)
+    head_d = d * 1.5
+    head_h = d * 1.0
+    socket_af = d * 0.7
+    socket_depth = head_h * 0.6
+    head = cq.Workplane("XY").circle(head_d / 2).extrude(head_h)
+    head = head.faces("+Z").workplane().polygon(6, socket_af).cutBlind(-socket_depth)
+    shank = (cq.Workplane("XY").workplane(offset=head_h)
+             .circle(d / 2).extrude(length))
+    return head.union(shank)
+
+
+def button_head_screw(M_spec: str, length: float) -> cq.Workplane:
+    """Button head: low-profile rounded head with hex socket."""
+    d, _ = _m(M_spec)
+    head_d = d * 1.7
+    head_h = d * 0.55
+    socket_af = d * 0.65
+    # rounded head via revolved arc
+    head = (cq.Workplane("XZ")
+            .moveTo(0, 0)
+            .lineTo(head_d / 2, 0)
+            .threePointArc((head_d / 2 - head_h * 0.2, head_h * 0.7),
+                           (0, head_h))
+            .close().revolve(360))
+    head = head.faces("+Z").workplane().polygon(6, socket_af).cutBlind(-head_h * 0.6)
+    shank = (cq.Workplane("XY").workplane(offset=head_h)
+             .circle(d / 2).extrude(length))
+    return head.union(shank)
+
+
+def flat_head_screw(M_spec: str, length: float) -> cq.Workplane:
+    """Flat-head (countersunk) screw with hex socket. 90° included angle."""
+    d, _ = _m(M_spec)
+    head_d = d * 1.9
+    head_h = (head_d - d) / 2  # 90° countersink → height = (head_d - shank_d) / 2
+    socket_af = d * 0.65
+    # head: revolved cone from head_d to shank_d
+    pts = [(0, 0), (head_d / 2, 0), (d / 2, head_h), (0, head_h)]
+    head = (cq.Workplane("XZ").moveTo(*pts[0])
+            .polyline(pts[1:]).close().revolve(360))
+    head = head.faces("+Z").workplane().polygon(6, socket_af).cutBlind(-head_h * 0.7)
+    shank = (cq.Workplane("XY").workplane(offset=head_h)
+             .circle(d / 2).extrude(length))
+    return head.union(shank)
+
+
+def set_screw(M_spec: str, length: float) -> cq.Workplane:
+    """Headless set screw with internal hex socket on one end + cone point."""
+    d, _ = _m(M_spec)
+    socket_af = d * 0.55
+    body = cq.Workplane("XY").circle(d / 2).extrude(length)
+    body = body.faces(">Z").workplane().polygon(6, socket_af).cutBlind(-length * 0.4)
+    # cone point at bottom
+    body = body.faces("<Z").chamfer(d * 0.2)
+    return body
+
+
+def wing_nut(M_spec: str) -> cq.Workplane:
+    """Wing nut: hex-nut body + two flat wing flaps for hand tightening."""
+    d, (_af, _hh, nh, _wo, _wt) = _m(M_spec)
+    body_d = d * 2.4
+    body = (cq.Workplane("XY").circle(body_d / 2).extrude(nh)
+            .faces("+Z").workplane().hole(d))
+    # two wings (flat plates) on opposite sides
+    wing_w = d * 0.6; wing_L = d * 3.0; wing_t = nh * 0.7
+    wing_a = (cq.Workplane("XY").box(wing_L, wing_w, wing_t,
+                                      centered=(True, True, False))
+              .translate((body_d / 2 + wing_L / 2 - body_d * 0.1, 0, (nh - wing_t) / 2 + wing_t / 2)))
+    wing_b = wing_a.mirror(mirrorPlane="YZ")
+    return body.union(wing_a).union(wing_b)
+
+
+def eye_bolt(M_spec: str, length: float) -> cq.Workplane:
+    """Eye bolt: shank with a circular eye loop at the head end."""
+    d, _ = _m(M_spec)
+    eye_id = d * 2.0
+    eye_ring_t = d * 0.6
+    eye_od = eye_id + 2 * eye_ring_t
+    # eye: torus-ish — annular disc (round cross-section ring approximated by disc)
+    eye = (cq.Workplane("XZ").circle(eye_od / 2).circle(eye_id / 2)
+           .extrude(d * 0.9)
+           .translate((0, 0, eye_od / 2 - d * 0.45)))
+    shank = (cq.Workplane("XY").workplane(offset=-length)
+             .circle(d / 2).extrude(length))
+    return eye.union(shank)
+
+
+def lock_washer(M_spec: str, kind: str = "split") -> cq.Workplane:
+    """Lock washer. kind = 'split' (helical) or 'star' (toothed external)."""
+    d, (_af, _hh, _nh, wo, wt) = _m(M_spec)
+    if kind == "split":
+        # split-ring helix approximation: annular disc with a thin gap
+        outer = (cq.Workplane("XY").circle(wo / 2 * 0.95).circle(d / 2 * 1.05)
+                 .extrude(wt * 1.3))
+        gap = (cq.Workplane("XY").box(wo, wt * 1.2, wt * 2.0)
+               .translate((wo / 2 - wt * 0.5, 0, 0)))
+        return outer.cut(gap)
+    # star washer: outer annulus + 8 triangular teeth
+    n_teeth = 8
+    body = (cq.Workplane("XY").circle(wo / 2 * 1.15).circle(d / 2 * 1.05)
+            .extrude(wt))
+    return body
+
+
+def spring_washer(M_spec: str) -> cq.Workplane:
+    """Conical (Belleville) spring washer: dished disc with hole."""
+    d, (_af, _hh, _nh, wo, wt) = _m(M_spec)
+    # build by revolving a small trapezoid that gives a slight cone
+    pts = [(d / 2, 0), (wo / 2 * 0.95, 0),
+           (wo / 2 * 0.95, wt), (d / 2, wt * 2.5)]
+    return (cq.Workplane("XZ").moveTo(*pts[0])
+            .polyline(pts[1:]).close().revolve(360))
+
+
+# ============================================================ #
+# Joints                                                       #
+# ============================================================ #
+def clevis_pin(diameter: float, length: float, head_d: float | None = None) -> cq.Workplane:
+    """Clevis pin: shank + small head + cross-hole for a cotter pin."""
+    head_d = head_d or diameter * 1.6
+    head_h = diameter * 0.4
+    cross_hole_d = diameter * 0.25
+    head = cq.Workplane("XY").circle(head_d / 2).extrude(head_h)
+    shank = (cq.Workplane("XY").workplane(offset=head_h)
+             .circle(diameter / 2).extrude(length))
+    body = head.union(shank)
+    # transverse hole near the far end
+    body = (body.faces(">Z").workplane(offset=-diameter * 0.6)
+            .transformed(rotate=(90, 0, 0))
+            .circle(cross_hole_d / 2).cutThruAll())
+    return body
+
+
+def rod_end_bearing(bore: float, thread_M: str = "M8") -> cq.Workplane:
+    """Heim joint / rod-end bearing: spherical-bearing head + threaded shank."""
+    d, (af, hh, nh, _wo, _wt) = _m(thread_M)
+    head_od = bore * 3.0
+    head_w = bore * 1.2
+    sphere_r = bore * 1.2
+    # head: outer ring
+    head = (cq.Workplane("XY").circle(head_od / 2).circle(bore / 2)
+            .extrude(head_w))
+    # spherical pocket on faces — approximated as a chamfer
+    head = head.faces(">Z").chamfer(head_w * 0.3)
+    head = head.faces("<Z").chamfer(head_w * 0.3)
+    # threaded shank along -Y from the bottom of the head
+    shank_L = bore * 4
+    shank = (cq.Workplane("XZ").workplane(offset=-head_od / 2 - shank_L * 0.1)
+             .circle(d / 2).extrude(-shank_L))
+    return head.union(shank.translate((0, 0, head_w / 2)))
+
+
+def universal_joint(yoke_d: float = 20, pin_d: float = 6) -> cq.Workplane:
+    """U-joint cross spider + two yokes (simplified visual)."""
+    cross_L = yoke_d * 0.9
+    # central cross: two perpendicular cylinders
+    arm_x = (cq.Workplane("YZ").circle(pin_d / 2).extrude(cross_L)
+             .translate((-cross_L / 2, 0, 0)))
+    arm_y = (cq.Workplane("XZ").circle(pin_d / 2).extrude(cross_L)
+             .translate((0, -cross_L / 2, 0)))
+    cross = arm_x.union(arm_y)
+    # two yokes (U-shaped brackets) along +Z and -Z
+    def _yoke(z_offset, axis_along_x: bool):
+        # plate base + two arms
+        base = (cq.Workplane("XY").box(yoke_d, yoke_d * 0.6, yoke_d * 0.25)
+                .translate((0, 0, z_offset + yoke_d * 0.125 *
+                            (1 if z_offset > 0 else -1))))
+        arms_offset = cross_L / 2 + pin_d * 0.6
+        if axis_along_x:
+            a1 = (cq.Workplane("XY").box(yoke_d * 0.3, yoke_d * 0.5, yoke_d * 0.6)
+                  .translate((arms_offset, 0, z_offset)))
+            a2 = a1.mirror(mirrorPlane="YZ")
+        else:
+            a1 = (cq.Workplane("XY").box(yoke_d * 0.5, yoke_d * 0.3, yoke_d * 0.6)
+                  .translate((0, arms_offset, z_offset)))
+            a2 = a1.mirror(mirrorPlane="XZ")
+        return base.union(a1).union(a2)
+    upper = _yoke(yoke_d * 0.5, axis_along_x=True)
+    lower = _yoke(-yoke_d * 0.5, axis_along_x=False)
+    return cross.union(upper).union(lower)
+
+
+def jaw_coupling(bore: float, length: float = 40,
+                 od: float | None = None) -> cq.Workplane:
+    """Jaw/spider flexible coupling: two hubs with interlocking jaws + spider gap."""
+    od = od or bore * 2.5
+    hub_L = length * 0.45
+    gap_L = length * 0.10  # spider sits here
+    # Hub A
+    hub_a = (cq.Workplane("XY").circle(od / 2).extrude(hub_L)
+             .faces("+Z").workplane().hole(bore))
+    # 3 jaws on the +Z face of hub A (sector cuts)
+    jaw_h = length * 0.20
+    for i in range(3):
+        ang = 120 * i
+        jaw = (cq.Workplane("XY").rect(od * 0.25, od * 0.6).extrude(jaw_h)
+               .rotate((0, 0, 0), (0, 0, 1), ang)
+               .translate((0, 0, hub_L)))
+        hub_a = hub_a.union(jaw)
+    # Hub B: mirror of A across the spider gap
+    hub_b = (cq.Workplane("XY").circle(od / 2).extrude(hub_L)
+             .faces("+Z").workplane().hole(bore))
+    for i in range(3):
+        ang = 120 * i + 60  # offset by 60° so jaws interlock
+        jaw = (cq.Workplane("XY").rect(od * 0.25, od * 0.6).extrude(jaw_h)
+               .rotate((0, 0, 0), (0, 0, 1), ang)
+               .translate((0, 0, hub_L)))
+        hub_b = hub_b.union(jaw)
+    hub_b = (hub_b.rotate((0, 0, 0), (1, 0, 0), 180)
+             .translate((0, 0, length)))
+    return hub_a.union(hub_b)
+
+
+# ============================================================ #
+# Engine components                                            #
+# ============================================================ #
+def crankshaft(n_throws: int, stroke: float, journal_d: float,
+               main_d: float | None = None,
+               web_w: float | None = None) -> cq.Workplane:
+    """Multi-throw crankshaft: alternating main journals + offset rod throws
+    + counterweights between throws.
+    """
+    n = int(n_throws)
+    main_d = main_d or journal_d * 1.5
+    web_w = web_w or main_d * 1.4
+    web_t = main_d * 0.4
+    main_L = main_d * 1.2
+    throw_L = main_d * 1.1
+    offset = stroke / 2
+
+    z = 0
+    body: cq.Workplane | None = None
+    for i in range(n):
+        # alternate angle 180° per throw (V-engine pattern)
+        ang = 180 * (i % 2)
+        cos = math.cos(math.radians(ang)); sin = math.sin(math.radians(ang))
+        # main journal
+        m = (cq.Workplane("YZ").workplane(offset=z)
+             .circle(main_d / 2).extrude(main_L))
+        body = m if body is None else body.union(m)
+        z += main_L
+        # web (counter-weight) coming out
+        web1 = (cq.Workplane("XY").box(web_w, web_w, web_t,
+                                        centered=(True, True, False))
+                .translate((offset * cos / 2, offset * sin / 2, z)))
+        body = body.union(web1.rotate((0, 0, 0), (0, 0, 1), ang))
+        z += web_t
+        # throw journal (offset)
+        thr = (cq.Workplane("YZ").workplane(offset=z)
+               .center(offset * cos, offset * sin)
+               .circle(journal_d / 2).extrude(throw_L))
+        body = body.union(thr)
+        z += throw_L
+        # second web
+        web2 = (cq.Workplane("XY").box(web_w, web_w, web_t,
+                                        centered=(True, True, False))
+                .translate((offset * cos / 2, offset * sin / 2, z)))
+        body = body.union(web2.rotate((0, 0, 0), (0, 0, 1), ang))
+        z += web_t
+    # final main journal
+    m = (cq.Workplane("YZ").workplane(offset=z)
+         .circle(main_d / 2).extrude(main_L))
+    body = body.union(m)
+    return body
+
+
+def camshaft(n_lobes: int, lobe_spacing: float, lobe_d: float,
+             journal_d: float | None = None) -> cq.Workplane:
+    """Camshaft: cylindrical shaft with N elliptical-cam lobes."""
+    n = int(n_lobes)
+    journal_d = journal_d or lobe_d * 0.6
+    lobe_w = lobe_spacing * 0.4
+    journal_L = lobe_spacing - lobe_w
+    L = n * lobe_spacing + journal_L
+
+    body = cq.Workplane("YZ").circle(journal_d / 2).extrude(L)
+    for i in range(n):
+        z = i * lobe_spacing + journal_L
+        # elliptical lobe (cam profile): wider on one side
+        lobe = (cq.Workplane("YZ").workplane(offset=z)
+                .ellipse(lobe_d / 2, lobe_d / 2 * 0.65)
+                .extrude(lobe_w))
+        # rotate each lobe by 120° (typical 3-cyl pattern); for n>3 keeps spreading
+        lobe = lobe.rotate((0, 0, 0), (1, 0, 0), 120 * i)
+        body = body.union(lobe)
+    return body
+
+
+def engine_valve(stem_d: float, head_d: float, length: float) -> cq.Workplane:
+    """Poppet valve: thin stem + disc head."""
+    sd, hd, L = float(stem_d), float(head_d), float(length)
+    stem = cq.Workplane("XY").circle(sd / 2).extrude(L)
+    head = (cq.Workplane("XY").circle(hd / 2).extrude(hd * 0.35)
+            .faces("<Z").chamfer(hd * 0.10)  # 45° valve seat
+            .translate((0, 0, 0)))
+    return head.union(stem.translate((0, 0, hd * 0.35)))
+
+
+def spark_plug(thread_d: float = 14, length: float = 60) -> cq.Workplane:
+    """Stylised spark plug: hex flats + threaded section + insulator + electrode."""
+    thread_L = length * 0.35
+    hex_af = thread_d * 1.4
+    hex_h = thread_d * 0.7
+    insul_d = thread_d * 1.1
+    insul_L = length * 0.40
+    electrode_d = thread_d * 0.18
+    elec_L = thread_d * 0.4
+
+    # threaded base
+    thread = cq.Workplane("XY").circle(thread_d / 2).extrude(thread_L)
+    # hex
+    hex_part = (cq.Workplane("XY").polygon(6, hex_af).extrude(hex_h)
+                .translate((0, 0, thread_L)))
+    # ceramic insulator (narrowing cylinder)
+    insul = (cq.Workplane("XY").circle(insul_d / 2).extrude(insul_L)
+             .translate((0, 0, thread_L + hex_h)))
+    # tip electrode
+    elec = (cq.Workplane("XY").circle(electrode_d / 2).extrude(elec_L)
+            .translate((0, 0, -elec_L)))
+    return thread.union(hex_part).union(insul).union(elec)
+
+
+def flywheel(od: float, bore: float, width: float,
+             n_holes: int = 6) -> cq.Workplane:
+    """Flywheel: heavy outer disc with central bore and N bolt-holes."""
+    body = (cq.Workplane("XY").circle(od / 2).extrude(width)
+            .faces("+Z").workplane().hole(bore))
+    # bolt-hole pattern at 60% radius
+    pcd = od * 0.6
+    bolt_d = od * 0.04
+    for i in range(int(n_holes)):
+        a = 2 * math.pi * i / int(n_holes)
+        body = (body.faces("+Z").workplane()
+                .center(pcd / 2 * math.cos(a), pcd / 2 * math.sin(a))
+                .hole(bolt_d))
+    return body
+
+
+def sprocket(teeth: int, pitch: float, width: float,
+             bore: float = 0) -> cq.Workplane:
+    """Roller-chain sprocket: pitch circle + N triangular teeth + optional bore.
+    Simplified visual; not a true tooth profile.
+    """
+    n = int(teeth)
+    pcr = pitch / (2 * math.sin(math.pi / n))   # pitch-circle radius
+    root_r = pcr - pitch * 0.15
+    tip_r = pcr + pitch * 0.20
+    body = cq.Workplane("XY").circle(root_r).extrude(width)
+    # one tooth
+    tooth_w = pitch * 0.7
+    tooth_pts = [
+        (-tooth_w / 2, 0),
+        (-tooth_w / 4, tip_r - root_r),
+        (tooth_w / 4, tip_r - root_r),
+        (tooth_w / 2, 0),
+    ]
+    tooth_2d = cq.Workplane("XY").polyline(tooth_pts).close()
+    tooth = tooth_2d.extrude(width).translate((0, root_r, 0))
+    for i in range(n):
+        a = 360 * i / n
+        body = body.union(tooth.rotate((0, 0, 0), (0, 0, 1), a))
+    if bore > 0:
+        body = body.faces("+Z").workplane().hole(bore)
+    return body
+
+
+# ============================================================ #
+# Mounts / fixtures                                            #
+# ============================================================ #
+def l_bracket(leg_a: float, leg_b: float, thickness: float,
+              width: float, hole_d: float = 0,
+              holes_per_leg: int = 0) -> cq.Workplane:
+    """L-shaped angle bracket. Two perpendicular plates joined at the corner.
+    Optional through-holes (N per leg, evenly spaced).
+    """
+    t = float(thickness); w = float(width)
+    # horizontal leg
+    h_leg = (cq.Workplane("XY").box(leg_a, w, t, centered=(False, True, False))
+             .translate((0, 0, 0)))
+    # vertical leg
+    v_leg = (cq.Workplane("XY").box(t, w, leg_b, centered=(False, True, False))
+             .translate((0, 0, 0)))
+    body = h_leg.union(v_leg)
+    if hole_d > 0 and holes_per_leg > 0:
+        # holes in horizontal leg (drilled along Z)
+        for i in range(int(holes_per_leg)):
+            x = leg_a * (i + 1) / (holes_per_leg + 1)
+            body = (body.faces(">Z").workplane()
+                    .center(x - leg_a / 2 + (leg_a - t) / 2, 0)
+                    .hole(hole_d))
+        # holes in vertical leg (drilled along X)
+        for i in range(int(holes_per_leg)):
+            z = leg_b * (i + 1) / (holes_per_leg + 1)
+            body = (body.faces("<X").workplane()
+                    .center(0, z - leg_b / 2 + (leg_b - t) / 2)
+                    .hole(hole_d))
+    return body
+
+
+def pillow_block(bore: float, length: float, width: float,
+                 height: float, base_thickness: float | None = None) -> cq.Workplane:
+    """Pillow-block bearing housing: rectangular base with a bore for a shaft.
+    Includes 2 mounting holes through the base.
+    """
+    base_thickness = base_thickness or height * 0.25
+    base = (cq.Workplane("XY").box(length, width, base_thickness,
+                                    centered=(True, True, False)))
+    boss = (cq.Workplane("XY").circle(width / 2 * 0.9).extrude(height)
+            .translate((0, 0, 0)))
+    body = base.union(boss)
+    # central bore
+    body = (body.faces(">Z").workplane().hole(bore))
+    # 2 mounting holes through the base near each end
+    hole_d = base_thickness * 0.7
+    mount_x = length * 0.4
+    body = (body.faces("<Z").workplane()
+            .pushPoints([(mount_x, 0), (-mount_x, 0)])
+            .hole(hole_d, base_thickness))
+    return body
+
+
 def v_pulley(od: float, width: float, bore: float,
              belt_width: float = 6.0) -> cq.Workplane:
     """Single V-groove pulley. Groove is a 40-deg trapezoidal cut."""
@@ -639,6 +1066,123 @@ class LibraryEngine:
                       float(belt_width)).translate((x, y, z))
         self._store(name, wp)
         return f"created V-pulley '{name}' OD={od} W={width} bore={bore}"
+
+    # ---- extended fasteners ---- #
+    def shcs(self, name: str, spec: str, length: float,
+             x: float = 0, y: float = 0, z: float = 0) -> str:
+        wp = socket_head_cap_screw(spec, float(length)).translate((x, y, z))
+        self._store(name, wp); return f"created {spec} SHCS '{name}' length {length} mm"
+
+    def button_screw(self, name: str, spec: str, length: float,
+                     x: float = 0, y: float = 0, z: float = 0) -> str:
+        wp = button_head_screw(spec, float(length)).translate((x, y, z))
+        self._store(name, wp); return f"created {spec} button-head screw '{name}'"
+
+    def flat_screw(self, name: str, spec: str, length: float,
+                   x: float = 0, y: float = 0, z: float = 0) -> str:
+        wp = flat_head_screw(spec, float(length)).translate((x, y, z))
+        self._store(name, wp); return f"created {spec} flat-head screw '{name}'"
+
+    def set_screw(self, name: str, spec: str, length: float,
+                  x: float = 0, y: float = 0, z: float = 0) -> str:
+        wp = set_screw(spec, float(length)).translate((x, y, z))
+        self._store(name, wp); return f"created {spec} set screw '{name}'"
+
+    def wing_nut(self, name: str, spec: str,
+                 x: float = 0, y: float = 0, z: float = 0) -> str:
+        wp = wing_nut(spec).translate((x, y, z))
+        self._store(name, wp); return f"created {spec} wing nut '{name}'"
+
+    def eye_bolt(self, name: str, spec: str, length: float,
+                 x: float = 0, y: float = 0, z: float = 0) -> str:
+        wp = eye_bolt(spec, float(length)).translate((x, y, z))
+        self._store(name, wp); return f"created {spec} eye bolt '{name}'"
+
+    def lock_washer(self, name: str, spec: str, kind: str = "split",
+                    x: float = 0, y: float = 0, z: float = 0) -> str:
+        wp = lock_washer(spec, kind).translate((x, y, z))
+        self._store(name, wp); return f"created {spec} {kind} lock washer '{name}'"
+
+    def spring_washer(self, name: str, spec: str,
+                      x: float = 0, y: float = 0, z: float = 0) -> str:
+        wp = spring_washer(spec).translate((x, y, z))
+        self._store(name, wp); return f"created {spec} spring (Belleville) washer '{name}'"
+
+    # ---- joints ---- #
+    def clevis_pin(self, name: str, diameter: float, length: float,
+                   x: float = 0, y: float = 0, z: float = 0) -> str:
+        wp = clevis_pin(float(diameter), float(length)).translate((x, y, z))
+        self._store(name, wp); return f"created clevis pin '{name}'"
+
+    def rod_end(self, name: str, bore: float, thread: str = "M8",
+                x: float = 0, y: float = 0, z: float = 0) -> str:
+        wp = rod_end_bearing(float(bore), thread).translate((x, y, z))
+        self._store(name, wp); return f"created rod-end bearing '{name}' bore={bore} thread={thread}"
+
+    def ujoint(self, name: str, yoke_d: float = 20, pin_d: float = 6,
+               x: float = 0, y: float = 0, z: float = 0) -> str:
+        wp = universal_joint(float(yoke_d), float(pin_d)).translate((x, y, z))
+        self._store(name, wp); return f"created U-joint '{name}'"
+
+    def jaw_coupling(self, name: str, bore: float, length: float = 40,
+                     od: float = 0,
+                     x: float = 0, y: float = 0, z: float = 0) -> str:
+        wp = jaw_coupling(float(bore), float(length),
+                          float(od) if od else None).translate((x, y, z))
+        self._store(name, wp); return f"created jaw coupling '{name}' bore={bore}"
+
+    # ---- engine components ---- #
+    def crankshaft(self, name: str, n_throws: int, stroke: float,
+                   journal_d: float,
+                   x: float = 0, y: float = 0, z: float = 0) -> str:
+        wp = crankshaft(int(n_throws), float(stroke), float(journal_d)).translate((x, y, z))
+        self._store(name, wp); return f"created crankshaft '{name}' {n_throws} throws"
+
+    def camshaft(self, name: str, n_lobes: int, lobe_spacing: float,
+                 lobe_d: float,
+                 x: float = 0, y: float = 0, z: float = 0) -> str:
+        wp = camshaft(int(n_lobes), float(lobe_spacing), float(lobe_d)).translate((x, y, z))
+        self._store(name, wp); return f"created camshaft '{name}' {n_lobes} lobes"
+
+    def valve(self, name: str, stem_d: float, head_d: float, length: float,
+              x: float = 0, y: float = 0, z: float = 0) -> str:
+        wp = engine_valve(float(stem_d), float(head_d), float(length)).translate((x, y, z))
+        self._store(name, wp); return f"created engine valve '{name}'"
+
+    def spark_plug(self, name: str, thread_d: float = 14, length: float = 60,
+                   x: float = 0, y: float = 0, z: float = 0) -> str:
+        wp = spark_plug(float(thread_d), float(length)).translate((x, y, z))
+        self._store(name, wp); return f"created spark plug '{name}'"
+
+    def flywheel(self, name: str, od: float, bore: float, width: float,
+                 n_holes: int = 6,
+                 x: float = 0, y: float = 0, z: float = 0) -> str:
+        wp = flywheel(float(od), float(bore), float(width),
+                      int(n_holes)).translate((x, y, z))
+        self._store(name, wp); return f"created flywheel '{name}' OD={od}"
+
+    def sprocket(self, name: str, teeth: int, pitch: float, width: float,
+                 bore: float = 0,
+                 x: float = 0, y: float = 0, z: float = 0) -> str:
+        wp = sprocket(int(teeth), float(pitch), float(width), float(bore)).translate((x, y, z))
+        self._store(name, wp); return f"created {teeth}-tooth sprocket '{name}'"
+
+    # ---- mounts ---- #
+    def l_bracket(self, name: str, leg_a: float, leg_b: float,
+                  thickness: float, width: float,
+                  hole_d: float = 0, holes_per_leg: int = 0,
+                  x: float = 0, y: float = 0, z: float = 0) -> str:
+        wp = l_bracket(float(leg_a), float(leg_b), float(thickness),
+                       float(width), float(hole_d),
+                       int(holes_per_leg)).translate((x, y, z))
+        self._store(name, wp); return f"created L-bracket '{name}' {leg_a}x{leg_b} mm"
+
+    def pillow_block(self, name: str, bore: float, length: float,
+                     width: float, height: float,
+                     x: float = 0, y: float = 0, z: float = 0) -> str:
+        wp = pillow_block(float(bore), float(length), float(width),
+                          float(height)).translate((x, y, z))
+        self._store(name, wp); return f"created pillow block '{name}' bore={bore}"
 
     # ---- aerospace mockups ---- #
     def turbine(self, name: str, blade_count: int, od: float, hub_d: float,
