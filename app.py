@@ -410,6 +410,76 @@ def fea_modal():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/sketch_upload", methods=["POST"])
+def sketch_upload():
+    """Upload a 2D image (hand sketch / technical drawing / silhouette
+    photo) and convert it to a 3D part.
+
+    Modes:
+      - trace:     contour-trace the silhouette via opencv, then extrude
+      - interpret: send to Claude vision, get parser commands, run them
+
+    Form fields:
+      image:           binary file
+      mode:            'trace' or 'interpret'
+      name:            part name to store under
+      target_mm:       trace only — longest bbox side after scaling (default 50)
+      extrude_mm:      trace only — extrusion depth (default 5)
+      api_key:         interpret only
+      model:           interpret only (default claude-opus-4-7)
+    """
+    file = request.files.get("image")
+    if not file:
+        return jsonify({"error": "no 'image' file uploaded"}), 400
+    mode = (request.form.get("mode") or "trace").strip().lower()
+    name = (request.form.get("name") or "sketch_part").strip() or "sketch_part"
+    img_bytes = file.read()
+
+    if mode == "trace":
+        target_mm = float(request.form.get("target_mm") or 50.0)
+        extrude_mm = float(request.form.get("extrude_mm") or 5.0)
+        with _lock:
+            try:
+                from image_to_3d import trace_silhouette
+                wp, info = trace_silhouette(img_bytes, target_mm, extrude_mm)
+                engine._snapshot()
+                engine.parts[name] = wp
+                _refresh_stl()
+                return jsonify({"ok": True, "name": name, "mode": "trace",
+                                "info": info})
+            except Exception as e:
+                return jsonify({"error": str(e)}), 400
+
+    elif mode == "interpret":
+        api_key = (request.form.get("api_key") or
+                   os.environ.get("ANTHROPIC_API_KEY") or "").strip()
+        if not api_key or not api_key.startswith("sk-ant-"):
+            return jsonify({"error": "interpret mode needs an Anthropic key "
+                            "(vision model). Paste sk-ant-... in settings."}), 400
+        model = (request.form.get("model") or DEFAULT_MODEL).strip()
+        with _lock:
+            try:
+                from image_to_3d import interpret_with_vision
+                cmds = interpret_with_vision(img_bytes, api_key, model)
+                if not cmds:
+                    return jsonify({"error": "vision returned no commands"}), 400
+                # execute the commands in order
+                results = []
+                for c in cmds:
+                    try:
+                        r = run_parser(engine, c)
+                        results.append({"cmd": c, "result": r})
+                    except Exception as e:
+                        results.append({"cmd": c, "error": str(e)})
+                _refresh_stl()
+                return jsonify({"ok": True, "mode": "interpret",
+                                "commands_run": results})
+            except Exception as e:
+                return jsonify({"error": str(e)}), 500
+    else:
+        return jsonify({"error": f"unknown mode '{mode}'"}), 400
+
+
 @app.route("/verify", methods=["POST"])
 def verify():
     """Verification agent: render the current scene + ask Claude vision

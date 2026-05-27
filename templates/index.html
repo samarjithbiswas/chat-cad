@@ -357,7 +357,9 @@
         <button id="exportStep">Export STEP</button>
         <button id="drawingPdf">Drawing PDF</button>
         <button id="importStepBtn">Import STEP</button>
-        <input id="importStepFile" type="file" accept=".step,.stp" style="display:none" /></span>
+        <input id="importStepFile" type="file" accept=".step,.stp" style="display:none" />
+        <button id="uploadSketchBtn" title="Upload a 2D drawing or hand sketch and generate a 3D part">Upload sketch</button>
+        <input id="uploadSketchFile" type="file" accept="image/*" style="display:none" /></span>
 
         <span data-rib="view"><button id="fitBtn" title="Auto-fit camera to all parts">Fit</button>
         <button id="zoomInBtn" title="Zoom in (= mouse wheel forward)">Zoom +</button>
@@ -1302,6 +1304,73 @@ document.getElementById('thermalRun').addEventListener('click', async () => {
       `gradient: ${d.grad_max?.toFixed(2)}°C/mm. (${d.n_nodes} nodes, ${d.n_elems} elements)`);
   } catch (e) {
     addMsg('bot', 'error', 'thermal call failed: ' + String(e));
+  }
+});
+
+// ----- Upload sketch / drawing → 3D ----- //
+document.getElementById('uploadSketchBtn').addEventListener('click', () => {
+  document.getElementById('uploadSketchFile').click();
+});
+document.getElementById('uploadSketchFile').addEventListener('change', async ev => {
+  const file = ev.target.files?.[0];
+  ev.target.value = '';   // allow re-uploading the same file
+  if (!file) return;
+  // ask the user which mode
+  const hasKey = apikeyEl.value && apikeyEl.value.startsWith('sk-ant-');
+  const modeChoice = prompt(
+    "How should I read this image?\n\n" +
+    "  1 = TRACE  (find the outline, extrude — for clean line drawings)\n" +
+    "  2 = INTERPRET (send to Claude vision — for hand sketches, " +
+    (hasKey ? "needs your sk-ant- key)" : "needs an sk-ant- key)") +
+    "\n\nType 1 or 2:", "1");
+  if (!modeChoice) return;
+  const mode = modeChoice.trim() === '2' ? 'interpret' : 'trace';
+  if (mode === 'interpret' && !hasKey) {
+    addMsg('bot', 'error', 'Interpret mode needs an Anthropic key. Paste sk-ant-... in settings, then retry.');
+    return;
+  }
+  let target_mm = 50, extrude_mm = 5, name = file.name.replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9_]/g, '_') || 'sketch';
+  if (mode === 'trace') {
+    const tw = prompt("Target width in mm (longest bbox side after scaling)?", "50");
+    if (tw === null) return;
+    target_mm = Number(tw) || 50;
+    const ex = prompt("Extrusion depth in mm?", "5");
+    if (ex === null) return;
+    extrude_mm = Number(ex) || 5;
+    const nm = prompt("Part name?", name);
+    if (nm) name = nm.replace(/[^a-zA-Z0-9_]/g, '_');
+  }
+  addMsg('user', 'upload', `${file.name} → ${mode} mode${mode==='trace' ? ` (${target_mm}mm wide, ${extrude_mm}mm deep)` : ''}`);
+  const form = new FormData();
+  form.append('image', file);
+  form.append('mode', mode);
+  form.append('name', name);
+  if (mode === 'trace') {
+    form.append('target_mm', String(target_mm));
+    form.append('extrude_mm', String(extrude_mm));
+  } else {
+    form.append('api_key', apikeyEl.value);
+    form.append('model', modelEl.value);
+  }
+  try {
+    const r = await fetch('/sketch_upload', { method:'POST', body: form });
+    const d = await r.json();
+    if (d.error) { addMsg('bot', 'error', 'sketch upload: ' + d.error); return; }
+    if (mode === 'trace') {
+      addMsg('bot', 'cad',
+        `traced silhouette: ${d.info.n_polyline_vertices} vertices, ` +
+        `bbox ${d.info.bbox_mm[0]}×${d.info.bbox_mm[1]} mm, ` +
+        `extruded ${d.info.extrude_mm} mm → part '${d.name}'`);
+    } else {
+      const summary = (d.commands_run || []).map(c =>
+        c.error ? `  ✗ ${c.cmd}\n     ${c.error}` :
+                  `  ✓ ${c.cmd}\n     ${c.result?.substring(0, 80) || ''}`).join('\n');
+      addMsg('bot', 'cad',
+        `vision interpreted ${d.commands_run.length} commands:\n${summary}`);
+    }
+    reloadScene(); refreshFeatureTree();
+  } catch (e) {
+    addMsg('bot', 'error', 'upload failed: ' + String(e));
   }
 });
 
