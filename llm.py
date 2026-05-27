@@ -1464,6 +1464,16 @@ def run_parser(engine: CadEngine, line: str) -> str:
             return engine.library.honeycomb(name, _f(L), _f(W), _f(T),
                                             cell, wall,
                                             xyz[0], xyz[1], xyz[2])
+        if cmd == "polish":
+            # polish <name> [radius]    OR    polish all [radius]
+            if not a:
+                return "usage: polish <name> [radius]   or   polish all [radius]"
+            if a[0] == "all":
+                r = _f(a[1]) if len(a) > 1 else None
+                return engine.polish_all(r)
+            name = a[0]
+            r = _f(a[1]) if len(a) > 1 else None
+            return engine.polish(name, r)
         if cmd == "mv2":
             # mv2 <subcommand> <name> <args...>
             # The args are passed positionally to the matching mv2 method.

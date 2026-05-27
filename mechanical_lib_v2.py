@@ -970,6 +970,99 @@ def mounting_plate_pattern(L: float, W: float, t: float,
     return body
 
 
+# ===================================================== #
+# PREMIUM / ROUNDED PRODUCT FORMS                       #
+# These deliberately use lofts + fillets + soft corners #
+# so they read as "real commercial products" instead    #
+# of engineering blocks.                                 #
+# ===================================================== #
+def rounded_enclosure(L: float, W: float, H: float,
+                      wall: float = 2.0, corner_r: float = 8.0,
+                      top_r: float = 3.0) -> cq.Workplane:
+    """Apple-TV / router-style rounded electronics enclosure: rounded-corner
+    rectangle in plan, top edges rolled over, hollow inside.
+    """
+    L, W, H = float(L), float(W), float(H)
+    cr = min(float(corner_r), L * 0.4, W * 0.4)
+    body = (cq.Workplane("XY").rect(L, W).extrude(H)
+            .edges("|Z").fillet(cr)
+            .edges(">Z").fillet(min(float(top_r), H * 0.3)))
+    # hollow it out
+    pocket = (cq.Workplane("XY").rect(L - 2 * wall, W - 2 * wall)
+              .extrude(H - wall)
+              .edges("|Z").fillet(max(0.1, cr - wall)))
+    body = body.cut(pocket)
+    return body
+
+
+def smartphone_mockup(L: float = 145, W: float = 70, t: float = 8,
+                      screen_inset: float = 4,
+                      screen_t: float = 0.5) -> cq.Workplane:
+    """Smartphone-style block: rounded rectangle in plan, very soft top edges,
+    indented screen area, slight chamfer along the side rails.
+    """
+    L, W, t = float(L), float(W), float(t)
+    corner_r = min(L, W) * 0.10
+    body = (cq.Workplane("XY").rect(L, W).extrude(t)
+            .edges("|Z").fillet(corner_r)
+            .edges(">Z or <Z").fillet(min(corner_r * 0.5, t * 0.3)))
+    # screen pocket (recessed)
+    screen = (cq.Workplane("XY").rect(L - 2 * screen_inset, W - 2 * screen_inset)
+              .extrude(screen_t)
+              .edges("|Z").fillet(corner_r * 0.7)
+              .translate((0, 0, t - screen_t)))
+    body = body.cut(screen)
+    return body
+
+
+def ergonomic_grip(length: float = 100, max_d: float = 32,
+                   min_d: float = 22) -> cq.Workplane:
+    """Hand-tool grip: cylindrical body with a slight waist (smaller in the
+    middle) and rounded end caps. Lofted between three profiles.
+    """
+    L = float(length); top_r = float(max_d) / 2; mid_r = float(min_d) / 2
+    body = (cq.Workplane("XY")
+            .circle(top_r * 0.7)
+            .workplane(offset=L * 0.1).circle(top_r)
+            .workplane(offset=L * 0.4).circle(mid_r)
+            .workplane(offset=L * 0.4).circle(top_r)
+            .workplane(offset=L * 0.1).circle(top_r * 0.7)
+            .loft(combine=True, ruled=False))
+    return body
+
+
+def consumer_button(diameter: float = 18, height: float = 5,
+                    dome_h: float | None = None) -> cq.Workplane:
+    """Round push-button cap: cylindrical base + rounded dome top."""
+    dh = dome_h or height * 0.6
+    base = (cq.Workplane("XY").circle(diameter / 2).extrude(height - dh)
+            .edges("|Z").fillet(diameter * 0.04))
+    # dome
+    dome = (cq.Workplane("XZ").moveTo(0, height - dh)
+            .lineTo(diameter / 2, height - dh)
+            .threePointArc((diameter / 2 * 0.7, height - dh * 0.3),
+                            (0, height))
+            .close().revolve(360))
+    return base.union(dome)
+
+
+def door_knob(neck_d: float = 14, head_d: float = 50,
+              length: float = 70) -> cq.Workplane:
+    """Smooth lofted door-knob form: small base, narrows to neck, swells to
+    spherical head. The kind of shape that shows the polish-loft difference.
+    """
+    L = float(length)
+    body = (cq.Workplane("XY")
+            .circle(head_d / 2 * 0.85)              # base flange
+            .workplane(offset=L * 0.08).circle(neck_d * 1.1 / 2)
+            .workplane(offset=L * 0.30).circle(neck_d / 2)
+            .workplane(offset=L * 0.55).circle(neck_d / 2)
+            .workplane(offset=L * 0.18).circle(head_d / 2 * 0.95)
+            .workplane(offset=L * 0.05).circle(head_d / 2 * 0.7)
+            .loft(combine=True, ruled=False))
+    return body
+
+
 class MechLibV2:
     """Routes mv2_* ops to the 60 helpers above, stores results in the scene."""
 
@@ -1128,6 +1221,19 @@ class MechLibV2:
         return self._do(name, mounting_plate_pattern, float(L), float(W), float(t), int(cols), int(rows), float(hole_d), x=x, y=y, z=z)
     def piston(self, name, bore, height, x=0, y=0, z=0):
         return self._do(name, piston_standalone, float(bore), float(height), x=x, y=y, z=z)
+
+    # ----- premium / commercial-product forms ----- #
+    def enclosure(self, name, L, W, H, wall=2.0, corner_r=8.0, x=0, y=0, z=0):
+        return self._do(name, rounded_enclosure, float(L), float(W), float(H),
+                        float(wall), float(corner_r), x=x, y=y, z=z)
+    def phone(self, name, L=145, W=70, t=8, x=0, y=0, z=0):
+        return self._do(name, smartphone_mockup, float(L), float(W), float(t), x=x, y=y, z=z)
+    def grip(self, name, length=100, max_d=32, min_d=22, x=0, y=0, z=0):
+        return self._do(name, ergonomic_grip, float(length), float(max_d), float(min_d), x=x, y=y, z=z)
+    def button_cap(self, name, diameter=18, height=5, x=0, y=0, z=0):
+        return self._do(name, consumer_button, float(diameter), float(height), x=x, y=y, z=z)
+    def door_knob(self, name, neck_d=14, head_d=50, length=70, x=0, y=0, z=0):
+        return self._do(name, door_knob, float(neck_d), float(head_d), float(length), x=x, y=y, z=z)
 
 
 def piston_standalone(bore: float, height: float,

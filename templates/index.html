@@ -432,6 +432,8 @@
         <button id="matApplySel" title="Apply material to selected part only">Apply to sel.</button>
         <button id="matApplyAll" title="Apply material to every part in the scene">Apply to all</button>
         <span style="width:1px;height:18px;background:var(--border);margin:0 4px"></span>
+        <button id="polishBtn" title="Fillet every edge of every part — instant commercial-product finish">Polish all</button>
+        <span style="width:1px;height:18px;background:var(--border);margin:0 4px"></span>
         <label style="font-size:11px">Environment
         <select id="envPreset" style="margin-left:4px">
           <option value="studio">Studio (default)</option>
@@ -1297,6 +1299,28 @@ document.getElementById('matApplySel').addEventListener('click', () => {
 document.getElementById('matApplyAll').addEventListener('click', () => {
   const preset = document.getElementById('matPreset').value;
   partGroup.children.filter(o => o.isMesh).forEach(m => applyPresetToMesh(m, preset));
+});
+
+// Polish all — global edge fillet across every part in the scene
+document.getElementById('polishBtn').addEventListener('click', async () => {
+  const r = prompt(
+    "Fillet radius in mm (leave blank for auto = 3% of each part's smallest dim):",
+    "");
+  addMsg('system', 'cad', 'polishing all parts...');
+  try {
+    const body = r && r.trim()
+      ? { message: 'polish all ' + r.trim(), api_key:'', model:'' }
+      : { message: 'polish all', api_key:'', model:'' };
+    const res = await fetch('/chat', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(body),
+    });
+    const d = await res.json();
+    addMsg('bot', 'cad', d.reply || '(done)');
+    reloadScene(); refreshFeatureTree();
+  } catch (e) {
+    addMsg('bot', 'error', 'polish failed: ' + String(e));
+  }
 });
 
 // ----- environment presets -----
@@ -2513,6 +2537,8 @@ const PARSER_CMDS = new Set([
   'pc',
   // 60-part extended mechanical library v2 (mv2 <subcommand> <args>)
   'mv2',
+  // global polish
+  'polish',
   // rich mechanical library — fasteners
   'shcs','button_screw','buttonscrew','flat_screw','flatscrew',
   'set_screw','setscrew','wing_nut','wingnut','eye_bolt','eyebolt',

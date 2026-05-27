@@ -318,6 +318,54 @@ class CadEngine:
             made.append(nm)
         return f"pattern-along-curve '{prefix}': {made}"
 
+    # ---------- polish (commercial-product finish) ---------- #
+    def polish(self, name: str, radius: float | None = None) -> str:
+        """Apply small fillets to every edge of a part. If no radius given,
+        auto-selects ~3% of the smallest bounding-box dimension so a hex bolt
+        and a 200 mm panel both get appropriately-sized eased edges.
+        """
+        self._snapshot()
+        part = self._require(name)
+        try:
+            bb = part.val().BoundingBox()
+            min_dim = min(bb.xlen, bb.ylen, bb.zlen)
+        except Exception:
+            min_dim = 10.0
+        r = float(radius) if radius is not None else max(0.2, min_dim * 0.03)
+        try:
+            self.parts[name] = part.edges().fillet(r)
+            return f"polished '{name}': fillet r={r:.2f} mm on all edges"
+        except Exception as e:
+            return (f"polish '{name}' partially failed (r={r:.2f}): {e}. "
+                    "Try a smaller radius or run on a simpler part.")
+
+    def polish_all(self, radius: float | None = None) -> str:
+        """Polish every part in the scene. Each gets its own auto-radius
+        based on its own size. Skips parts that fail (logs which).
+        """
+        polished, skipped = [], []
+        # iterate over a snapshot of names to avoid mutation during the loop
+        names = list(self.parts.keys())
+        for n in names:
+            if n.startswith("_"):
+                continue  # internal / assembly compounds
+            try:
+                bb = self.parts[n].val().BoundingBox()
+                min_dim = min(bb.xlen, bb.ylen, bb.zlen)
+                r = float(radius) if radius is not None else max(0.2, min_dim * 0.03)
+                self.parts[n] = self.parts[n].edges().fillet(r)
+                polished.append(f"{n}(r={r:.2f})")
+            except Exception:
+                skipped.append(n)
+        msg = f"polished {len(polished)}/{len(names)} parts"
+        if polished:
+            msg += "\n  + " + ", ".join(polished[:10])
+            if len(polished) > 10:
+                msg += f" + {len(polished)-10} more"
+        if skipped:
+            msg += "\n  − skipped (complex geometry or unfilletable): " + ", ".join(skipped[:6])
+        return msg
+
     # ---------- patterns / mirror ---------- #
     def mirror(self, out: str, src: str, plane: str = "XY") -> str:
         """Mirror a part across XY, XZ, or YZ plane; result stored as 'out'."""
