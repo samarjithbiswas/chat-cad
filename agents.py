@@ -310,6 +310,58 @@ def critique_standards(client, model: str, brief: str, engine) -> dict:
         return {"verdict": "warn", "feedback": text[:200], "issues": []}
 
 
+VERIFY_SYSTEM = """You are a CAD verification agent. The user describes what
+they intended to build. A rendered image of the current scene is provided.
+
+Compare the image against the description. Decide whether the scene matches
+what was asked for and how closely. Be honest and specific — if a key
+feature is missing or wrong, say so.
+
+Output JSON exactly:
+{
+  "match_score": 0-100 (integer; how closely the scene matches the intent),
+  "verdict": "match" | "partial" | "mismatch",
+  "what_matches": ["specific things the scene does have"],
+  "what_is_missing_or_wrong": ["specific issues; empty if perfect"],
+  "suggested_commands": ["zero or more chat_cad commands that would fix the
+                          gap, e.g. 'fillet base 2' or 'hole base 4'"]
+}
+No prose. JSON only. Use short, concrete strings.
+"""
+
+
+def verify_intent(client, model: str, user_description: str,
+                  image_path: str, parts_summary: str) -> dict:
+    """Standalone verification: 'does the current scene match what I asked
+    for?' — usable in any mode, not just Design Agent.
+    """
+    img_b64 = _png_to_b64(image_path)
+    msg = {
+        "role": "user",
+        "content": [
+            {"type": "image", "source": {
+                "type": "base64", "media_type": "image/png", "data": img_b64}},
+            {"type": "text", "text":
+                f"USER ASKED FOR:\n{user_description}\n\n"
+                f"PARTS IN THE SCENE:\n{parts_summary}\n\n"
+                "Verify the rendered scene against the user's intent."},
+        ],
+    }
+    resp = client.messages.create(
+        model=model, max_tokens=700, system=VERIFY_SYSTEM, messages=[msg])
+    text = "".join(b.text for b in resp.content if getattr(b, "type", None) == "text")
+    text = text.strip().lstrip("`").rstrip("`")
+    if text.startswith("json"):
+        text = text[4:].lstrip()
+    try:
+        return json.loads(text)
+    except Exception as e:
+        return {"match_score": 50, "verdict": "partial",
+                "what_matches": [], "what_is_missing_or_wrong":
+                    [f"(verifier returned non-JSON: {e})"],
+                "suggested_commands": []}
+
+
 def critique_visual(client, model: str, brief: str, milestone: dict,
                     modeler_summary: str, image_path: str) -> dict:
     img_b64 = _png_to_b64(image_path)

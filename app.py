@@ -410,6 +410,37 @@ def fea_modal():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/verify", methods=["POST"])
+def verify():
+    """Verification agent: render the current scene + ask Claude vision
+    whether it matches the user's intent. Works in any mode (Chat, Design
+    Agent, parser-only). Requires an Anthropic key (vision model).
+    """
+    data = request.get_json(force=True)
+    intent = (data.get("intent") or "").strip()
+    api_key = (data.get("api_key") or os.environ.get("ANTHROPIC_API_KEY") or "").strip()
+    model = (data.get("model") or DEFAULT_MODEL).strip()
+    if not intent:
+        return jsonify({"error": "intent (what you asked for) is required"}), 400
+    if not api_key or not api_key.startswith("sk-ant-"):
+        return jsonify({"error": "verification agent needs an Anthropic key "
+                                  "(vision model). Paste sk-ant-... in settings."}), 400
+    with _lock:
+        if not engine.parts:
+            return jsonify({"error": "scene is empty — nothing to verify"}), 400
+        parts_summary = engine.list_parts()
+        try:
+            from agents import render_scene_png, verify_intent
+            from anthropic import Anthropic
+            img_path = os.path.join(OUTPUT, "_verify.png")
+            render_scene_png(engine, img_path, width=640, height=480)
+            client = Anthropic(api_key=api_key)
+            result = verify_intent(client, model, intent, img_path, parts_summary)
+            return jsonify(result)
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+
 @app.route("/cfd/run", methods=["POST"])
 def cfd_run():
     """2D steady Stokes flow around the part's XY silhouette. Real PDE

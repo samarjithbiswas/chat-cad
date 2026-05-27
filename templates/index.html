@@ -379,7 +379,9 @@
         <span id="secVal" style="font-size:11px;opacity:0.7;min-width:60px">0.00 mm</span>
         <span style="width:1px;height:18px;background:var(--border);margin:0 4px"></span>
         <button id="explodeBtn" title="Spread parts outward for an exploded view">Explode</button>
-        <button id="unexplodeBtn" title="Return parts to their real positions">Collapse</button></span>
+        <button id="unexplodeBtn" title="Return parts to their real positions">Collapse</button>
+        <span style="width:1px;height:18px;background:var(--border);margin:0 4px"></span>
+        <button id="verifyBtn" title="Ask the verifier agent whether the current scene matches what you wanted">Verify intent</button></span>
 
         <span data-rib="edit"><button id="measureBtn">Measure</button>
         <button id="measureClear" title="Clear distance markers (does NOT clear parts)">Clear measure</button>
@@ -1300,6 +1302,44 @@ document.getElementById('thermalRun').addEventListener('click', async () => {
       `gradient: ${d.grad_max?.toFixed(2)}°C/mm. (${d.n_nodes} nodes, ${d.n_elems} elements)`);
   } catch (e) {
     addMsg('bot', 'error', 'thermal call failed: ' + String(e));
+  }
+});
+
+// ----- Verify-intent button (standalone verification agent) -----
+document.getElementById('verifyBtn').addEventListener('click', async () => {
+  if (!apikeyEl.value || !apikeyEl.value.startsWith('sk-ant-')) {
+    addMsg('bot', 'error',
+      "Verifier needs an Anthropic API key (it uses Claude vision). " +
+      "Paste sk-ant-... in the settings panel above.");
+    return;
+  }
+  const intent = prompt(
+    "Describe what you intended to build (the verifier will render the " +
+    "scene + check it against this description):",
+    "");
+  if (!intent || !intent.trim()) return;
+  addMsg('system', 'verify',
+    `verifier rendering the scene + checking against: "${intent.trim()}"...`);
+  try {
+    const r = await fetch('/verify', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ intent: intent.trim(),
+                              api_key: apikeyEl.value, model: modelEl.value }),
+    });
+    const d = await r.json();
+    if (d.error) { addMsg('bot', 'error', 'verifier: ' + d.error); return; }
+    const verdictColor = d.verdict === 'match' ? '✓' :
+                         d.verdict === 'partial' ? '◐' : '✗';
+    const matches = (d.what_matches || []).map(s => '  + ' + s).join('\n');
+    const issues  = (d.what_is_missing_or_wrong || []).map(s => '  − ' + s).join('\n');
+    const fixes   = (d.suggested_commands || []).map(s => '  → ' + s).join('\n');
+    addMsg('bot', 'verify',
+      `${verdictColor}  ${d.verdict.toUpperCase()}  (match score: ${d.match_score}/100)\n\n` +
+      (matches ? `What matches:\n${matches}\n\n` : '') +
+      (issues  ? `Missing / wrong:\n${issues}\n\n`  : '') +
+      (fixes   ? `Suggested fixes:\n${fixes}`         : ''));
+  } catch (e) {
+    addMsg('bot', 'error', 'verify call failed: ' + String(e));
   }
 });
 
