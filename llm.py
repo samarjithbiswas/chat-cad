@@ -1760,4 +1760,7 @@ def run_parser(engine: CadEngine, line: str) -> str:
                                  xyz[0], xyz[1], xyz[2])
         return f"unknown command '{cmd}'. type 'help'."
     except Exception as e:
-        return f"ERROR: {e}"
+        # KeyError(__str__) wraps the message in repr() quotes and escapes
+        # newlines back to literal '\n'. Use args[0] to get the raw message.
+        msg = e.args[0] if e.args else str(e)
+        return f"ERROR: {msg}"
