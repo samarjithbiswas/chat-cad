@@ -587,6 +587,13 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { STLLoader } from 'three/addons/loaders/STLLoader.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
+import { EffectComposer }   from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass }       from 'three/addons/postprocessing/RenderPass.js';
+import { SSAOPass }         from 'three/addons/postprocessing/SSAOPass.js';
+import { UnrealBloomPass }  from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass }       from 'three/addons/postprocessing/OutputPass.js';
+import { ShaderPass }       from 'three/addons/postprocessing/ShaderPass.js';
+import { FXAAShader }       from 'three/addons/shaders/FXAAShader.js';
 
 // ----- inline SVG icon library (Lucide-derived, MIT-equivalent paths) -----
 // Each icon is a single SVG path string. Theme-aware: stroke=currentColor
@@ -639,15 +646,43 @@ const ICONS = {
   'cog':        'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z',
 };
 
-function ico(name, size = 14) {
+// Per-icon category colours so the ribbon parses at a glance
+const ICON_TINT = {
+  // File ops — blue
+  'file-plus':'#2c5fb3','trash':'#c54e3a','eraser':'#c54e3a','download':'#2c5fb3',
+  'upload':'#2c5fb3','file-text':'#2c5fb3','image':'#2c5fb3',
+  // View — purple/indigo
+  'maximize':'#7c3aed','zoom-in':'#7c3aed','zoom-out':'#7c3aed','rotate-cw':'#7c3aed',
+  'cube':'#7c3aed','square':'#7c3aed','expand':'#7c3aed','minimize':'#7c3aed',
+  'scissors':'#7c3aed','check':'#2c8a3b',
+  // Edit — orange
+  'ruler':'#e07a1a','x':'#c54e3a','move':'#e07a1a','rotate':'#e07a1a',
+  // Render — gold
+  'palette':'#d4af37','target':'#d4af37','grid':'#d4af37','sun':'#d4af37',
+  // Simulate — teal
+  'activity':'#0d9488','thermometer':'#c54e3a','wave':'#0d9488','wind':'#0d9488',
+  'sparkles':'#7c3aed',
+  // Misc
+  'play':'#2c8a3b','eye':'#5a6b7a','plus':'#2c8a3b','minus':'#5a6b7a',
+  'pencil':'#e07a1a','boxes':'#7c3aed','list':'#5a6b7a','table':'#5a6b7a',
+  'book':'#7c3aed','box':'#7c3aed','wrench':'#5a6b7a','cog':'#5a6b7a',
+  'eye-off':'#5a6b7a','pause':'#5a6b7a',
+};
+
+function ico(name, size = 16) {
   const path = ICONS[name];
   if (!path) return '';
+  const tint = ICON_TINT[name] || 'currentColor';
   // split chained paths into separate <path> elements (each starts with M)
   const parts = path.split(/(?=M)/).map(p => p.trim()).filter(Boolean);
   const svgPaths = parts.map(p =>
-    `<path d="${p}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`
+    `<path d="${p}" fill="none" stroke="${tint}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`
   ).join('');
-  return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" style="vertical-align:-2px;margin-right:5px;flex-shrink:0">${svgPaths}</svg>`;
+  // colored background tile (10% tint of the stroke colour) behind the glyph
+  return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" style="vertical-align:-3px;margin-right:6px;flex-shrink:0">
+            <rect x="1" y="1" width="22" height="22" rx="5" fill="${tint}" opacity="0.13"/>
+            ${svgPaths}
+          </svg>`;
 }
 
 function iconize(btnId, iconName) {
@@ -1750,9 +1785,54 @@ document.getElementById('feaRun').addEventListener('click', async () => {
   }
 });
 
+// ----- ANSYS-grade postprocessing: SSAO + bloom + FXAA -----
+// Real-time soft contact shadows, glow on metallic highlights, anti-aliasing.
+// EffectComposer pipeline: scene render -> SSAO -> bloom -> FXAA -> output.
+let composer = null;
+function buildComposer() {
+  const r = view.getBoundingClientRect();
+  const tbH = view.querySelector('#toolbar').getBoundingClientRect().height;
+  const ribH = view.querySelector('#ribbontabs').getBoundingClientRect().height;
+  const w = Math.max(100, r.width);
+  const h = Math.max(100, r.height - tbH - ribH);
+  composer = new EffectComposer(renderer);
+  composer.setSize(w, h);
+  composer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  composer.addPass(new RenderPass(scene, camera));
+  // SSAO: short-range darkening where parts meet
+  const ssao = new SSAOPass(scene, camera, w, h);
+  ssao.kernelRadius = 8;
+  ssao.minDistance = 0.001;
+  ssao.maxDistance = 0.06;
+  composer.addPass(ssao);
+  // Bloom: glow on bright metallic specular highlights
+  const bloom = new UnrealBloomPass(new THREE.Vector2(w, h), 0.35, 0.5, 0.85);
+  composer.addPass(bloom);
+  // FXAA: cheap edge anti-aliasing
+  const fxaa = new ShaderPass(FXAAShader);
+  fxaa.material.uniforms.resolution.value.set(1 / w, 1 / h);
+  composer.addPass(fxaa);
+  composer.addPass(new OutputPass());
+}
+buildComposer();
+
+// re-build the composer when the viewport resizes
+function _resizeComposer() {
+  if (!composer) return;
+  const r = view.getBoundingClientRect();
+  const tbH = view.querySelector('#toolbar')?.getBoundingClientRect().height || 0;
+  const ribH = view.querySelector('#ribbontabs')?.getBoundingClientRect().height || 0;
+  const w = Math.max(100, r.width);
+  const h = Math.max(100, r.height - tbH - ribH);
+  composer.setSize(w, h);
+}
+window.addEventListener('resize', _resizeComposer);
+_resizeComposer();
+
 function animate() {
   controls.update();
-  renderer.render(scene, camera);
+  if (composer) composer.render();
+  else renderer.render(scene, camera);
   renderViewCube();
   requestAnimationFrame(animate);
 }
